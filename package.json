@@ -1,0 +1,57 @@
+{
+  "name": "copilot-proxy",
+  "version": "0.1.0",
+  "description": "GitHub Copilot Model API Proxy — expose Copilot as OpenAI/Anthropic-compatible endpoints for Claude Code, Codex, and Gemini CLIs.",
+  "keywords": [
+    "copilot",
+    "github-copilot",
+    "openai",
+    "anthropic",
+    "claude",
+    "proxy",
+    "cli",
+    "llm"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dongrongyu/copilot-proxy.git"
+  },
+  "homepage": "https://github.com/dongrongyu/copilot-proxy#readme",
+  "bugs": {
+    "url": "https://github.com/dongrongyu/copilot-proxy/issues"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "copilot-proxy": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts start",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "build": "bun build src/index.ts --outfile dist/index.js --target node --minify",
+    "prepublishOnly": "bun run typecheck && bun test && bun run build"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/js-yaml": "^4.0.9"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.14",
+    "commander": "^14.0.3",
+    "hono": "^4.12.14",
+    "js-tiktoken": "^1.0.21",
+    "js-yaml": "^4.1.1"
+  }
+}

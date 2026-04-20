@@ -1,0 +1,48 @@
+# dependencies
+node_modules
+package-lock.json
+
+# output / build artifacts
+out
+dist
+*.tgz
+*.node
+
+# Bun
+.bun
+
+# code coverage
+coverage
+*.lcov
+
+# logs
+logs
+*.log
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# dotenv environment variable files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# caches
+.eslintcache
+.cache
+*.tsbuildinfo
+
+# IntelliJ based IDEs
+.idea
+
+# Finder (MacOS) folder config
+.DS_Store
+
+# oh-my-claudecode state
+.omc/
+
+# backup files
+*.bak
+
+# test logs
+testlogs/
