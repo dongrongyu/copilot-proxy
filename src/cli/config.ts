@@ -109,12 +109,12 @@ export async function configCommand(target: string, options?: { output?: string 
       await configCodex(baseUrl, options?.output);
       break;
     case "gemini":
-      configGemini(baseUrl);
+      await configGemini(baseUrl, options?.output);
       break;
     case "all":
       await configClaude(baseUrl, options?.output);
       await configCodex(baseUrl, options?.output);
-      configGemini(baseUrl);
+      await configGemini(baseUrl, options?.output);
       break;
     default:
       console.error(`Unknown target: ${target}. Use: claude, codex, gemini, or all`);
@@ -534,10 +534,191 @@ async function configCodex(baseUrl: string, outputPath?: string) {
   }
 }
 
-function configGemini(baseUrl: string) {
-  console.log(`[Config] Gemini CLI configuration:`);
-  console.log(`  Set environment variables:`);
-  console.log(`  export GEMINI_API_BASE_URL=${baseUrl}/v1`);
-  console.log(`  export GEMINI_API_KEY=copilot-proxy`);
-  console.log(`\n  Or add to your shell profile (~/.bashrc or ~/.zshrc).`);
+async function configGemini(baseUrl: string, outputPath?: string): Promise<void> {
+  // Determine target .env paths
+  const envPaths: string[] = [];
+  if (outputPath) {
+    envPaths.push(outputPath);
+  } else {
+    const wslPath = join(homedir(), ".gemini", ".env");
+    const winHome = getWindowsHomePath();
+    const winPath = winHome ? join(winHome, ".gemini", ".env") : null;
+
+    if (winPath) {
+      console.log("\nWhere to configure Gemini CLI?\n");
+      console.log("  1) WSL only    (" + wslPath + ")");
+      console.log("  2) Windows only (" + winPath + ")");
+      console.log("  3) Both");
+      const platformChoice = await prompt("\nChoice [3]: ");
+      if (platformChoice === "1") envPaths.push(wslPath);
+      else if (platformChoice === "2") envPaths.push(winPath);
+      else envPaths.push(wslPath, winPath);
+    } else {
+      envPaths.push(wslPath);
+    }
+  }
+
+  // Show targets + confirm existing files
+  console.log("\nTarget location(s):");
+  for (const p of envPaths) {
+    console.log(`  ${p} ${existsSync(p) ? "(exists)" : "(new)"}`);
+  }
+
+  const pathsToWrite: string[] = [];
+  for (const p of envPaths) {
+    if (existsSync(p)) {
+      const ans = (await prompt(`\n[Config] ${p} already exists. Update? [Y/n]: `)).toLowerCase();
+      if (ans === "n" || ans === "no") {
+        console.log(`[Config] Skipped: ${p}`);
+        continue;
+      }
+    }
+    pathsToWrite.push(p);
+  }
+
+  if (pathsToWrite.length === 0) {
+    console.log("\nNothing to do.");
+    return;
+  }
+
+  // Fetch models
+  const config = loadConfig();
+  const state = initState(config);
+  state.github_token = getGitHubToken();
+  await ensureCopilotToken();
+  await fetchModels();
+
+  const modelList = getState().models?.data ?? [];
+  const modelNames = filterAndSortModels(modelList.map((m: any) => m.id));
+  const geminiModels = modelNames.filter((id: string) => id.toLowerCase().startsWith("gemini-"));
+
+  if (geminiModels.length === 0) {
+    console.error("No Gemini models found in Copilot API. Please check your subscription.");
+    process.exit(1);
+  }
+
+  console.log("\nAvailable Gemini models from Copilot API:\n");
+  for (let i = 0; i < geminiModels.length; i++) {
+    console.log(`  ${i + 1}) ${geminiModels[i]}`);
+  }
+
+  const choice = await prompt(`\nSelect model [1]: `);
+  let selectedModel: string;
+  const idx = parseInt(choice, 10);
+  if (choice === "" || idx === 1) {
+    selectedModel = geminiModels[0]!;
+  } else if (idx >= 1 && idx <= geminiModels.length) {
+    selectedModel = geminiModels[idx - 1]!;
+  } else {
+    console.log("Invalid choice, using first model.");
+    selectedModel = geminiModels[0]!;
+  }
+
+  console.log(`\nUsing model: ${selectedModel}`);
+
+  const envVars = buildGeminiEnv(baseUrl, selectedModel);
+
+  for (const envFilePath of pathsToWrite) {
+    const dir = dirname(envFilePath);
+    mkdirSync(dir, { recursive: true });
+
+    let existingEnv = "";
+    if (existsSync(envFilePath)) {
+      try { existingEnv = readFileSync(envFilePath, "utf-8"); } catch {}
+    }
+    // Preserve existing GEMINI_API_KEY if present, otherwise use our placeholder.
+    const preserveKeys = new Set(["GEMINI_API_KEY"]);
+    const merged = mergeEnvFile(existingEnv, envVars, preserveKeys);
+    writeFileSync(envFilePath, merged, "utf-8");
+    console.log(`\n[Config] Written: ${envFilePath}`);
+
+    // Also write settings.json to skip auth prompt on first Gemini CLI launch.
+    const settingsPath = join(dir, "settings.json");
+    let existingSettings: any = {};
+    if (existsSync(settingsPath)) {
+      try { existingSettings = JSON.parse(readFileSync(settingsPath, "utf-8")); } catch {}
+    }
+    const mergedSettings = mergeGeminiSettings(existingSettings);
+    writeFileSync(settingsPath, JSON.stringify(mergedSettings, null, 2) + "\n", "utf-8");
+    console.log(`[Config] Written: ${settingsPath}`);
+  }
+
+  console.log(`\n  GOOGLE_GEMINI_BASE_URL=${baseUrl}`);
+  console.log(`  Model=${selectedModel}`);
+  console.log(`\nNext steps:`);
+  console.log(`  gemini`);
+}
+
+/**
+ * Build the Gemini CLI .env variables.
+ * GEMINI_API_KEY uses a placeholder ("github-copilot") — the proxy doesn't
+ * validate it, but the Gemini CLI refuses to start without one.
+ */
+export function buildGeminiEnv(baseUrl: string, model: string): Record<string, string> {
+  return {
+    // The @google/genai SDK prepends "/v1beta/models/..." to this base URL,
+    // so we must NOT include "/v1beta" here (would produce "/v1beta/v1beta/...").
+    GOOGLE_GEMINI_BASE_URL: baseUrl,
+    GEMINI_API_KEY: "github-copilot",
+    GEMINI_MODEL: model,
+    GEMINI_TELEMETRY_ENABLED: "false",
+  };
+}
+
+/**
+ * Merge new env vars into existing .env file content while preserving other
+ * lines. Keys in `preserveKeys` keep their existing value if present.
+ */
+export function mergeEnvFile(
+  existing: string,
+  vars: Record<string, string>,
+  preserveKeys: Set<string> = new Set(),
+): string {
+  const lines = existing ? existing.split(/\r?\n/) : [];
+  const keyRegex = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/;
+  const existingKeys = new Map<number, string>();
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i]!.match(keyRegex);
+    if (m && m[1]) existingKeys.set(i, m[1]);
+  }
+
+  const seen = new Set<string>();
+  // Update in place where possible
+  for (const [idx, key] of existingKeys) {
+    if (!(key in vars)) continue;
+    seen.add(key);
+    if (preserveKeys.has(key)) continue; // keep existing value
+    lines[idx] = `${key}=${vars[key]}`;
+  }
+
+  // Append new keys
+  const toAppend: string[] = [];
+  for (const [key, value] of Object.entries(vars)) {
+    if (seen.has(key)) continue;
+    toAppend.push(`${key}=${value}`);
+  }
+
+  while (lines.length > 0 && lines[lines.length - 1]!.trim() === "") lines.pop();
+  if (toAppend.length > 0) {
+    if (lines.length > 0) lines.push("");
+    for (const l of toAppend) lines.push(l);
+  }
+
+  return lines.join("\n") + "\n";
+}
+
+/**
+ * Merge Gemini CLI settings.json to set `security.auth.selectedType` while
+ * preserving all other keys.
+ */
+export function mergeGeminiSettings(existing: any): any {
+  const out: any = { ...(existing ?? {}) };
+  out.security = {
+    ...(existing?.security ?? {}),
+    auth: {
+      ...(existing?.security?.auth ?? {}),
+      selectedType: "gemini-api-key",
+    },
+  };
+  return out;
 }

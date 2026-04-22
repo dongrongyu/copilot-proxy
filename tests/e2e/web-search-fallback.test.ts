@@ -3,11 +3,16 @@
  * Sends a request with web_search tool to a model that doesn't support it.
  * The proxy should detect the rejection, search via Tavily, inject results
  * as tool_use/tool_result, and retry successfully.
+ *
+ * Skipped by default to preserve Tavily quota. Set RUN_TAVILY_E2E=1 to enable.
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { startTestServer, stopTestServer, getBaseUrl } from "./setup";
 
-describe("Web Search Fallback", () => {
+const shouldRun = process.env.RUN_TAVILY_E2E === "1";
+const describeFn = shouldRun ? describe : describe.skip;
+
+describeFn("Web Search Fallback", () => {
   beforeAll(async () => {
     await startTestServer();
   }, 30_000);

@@ -1,14 +1,17 @@
 # copilot-proxy
 
-Expose your GitHub Copilot subscription as **OpenAI-** and **Anthropic-compatible** HTTP endpoints, so any tool that speaks those APIs — Claude Code, Codex CLI, Gemini CLI, custom scripts — can route through Copilot.
+Expose your GitHub Copilot subscription as **OpenAI-**, **Anthropic-**, and **Gemini-compatible** HTTP endpoints, so any tool that speaks those APIs — Claude Code, Codex CLI, Gemini CLI, custom scripts — can route through Copilot.
 
 Runs on Node.js ≥ 20 (or [Bun](https://bun.sh/) in development).
 
 ## Features
 
-- **OpenAI-compatible**: `POST /v1/chat/completions`, `/chat/completions`, `/v1/responses` (streaming + non-streaming)
+- **OpenAI-compatible**: `POST /v1/chat/completions`, `/chat/completions`, `/v1/responses` (streaming + non-streaming), plus `GET /v1/models`
 - **Anthropic-compatible**: `POST /v1/messages`, `/v1/messages/count_tokens` (streaming + non-streaming)
-- **Format translation**: Anthropic ↔ OpenAI, and Responses ↔ Chat Completions for models that don't support `/v1/responses` natively (e.g. Claude via Copilot)
+- **Gemini-compatible**: `POST /v1beta/models/{model}:generateContent` / `:streamGenerateContent` / `:countTokens`, plus `GET /v1beta/models` for CLI preflight
+- **Format translation**: Anthropic ↔ OpenAI, Gemini ↔ OpenAI, and Responses ↔ Chat Completions for models that don't support `/v1/responses` natively (e.g. Claude via Copilot)
+- **Web search fallback** — when a model doesn't natively support Anthropic's `web_search` tool, the proxy transparently runs the query via Tavily and injects synthetic `server_tool_use` / `web_search_tool_result` blocks
+- **Vision passthrough** — image inputs are forwarded to vision-capable Copilot models
 - **GitHub Device Flow OAuth** — one-time login, tokens persisted locally
 - **Auto-refreshing Copilot token** — the short-lived upstream token is refreshed in the background
 - **Model aliasing** — `claude-opus-4-6` ↔ `claude-opus-4.6`, etc.
@@ -18,10 +21,10 @@ Runs on Node.js ≥ 20 (or [Bun](https://bun.sh/) in development).
 
 ## Install
 
-Requires Bun ≥ 1.1.
+Requires Node.js ≥ 20.
 
 ```bash
-bun install -g copilot-proxy
+npm install -g copilot-proxy
 ```
 
 ## Quickstart
@@ -37,21 +40,7 @@ copilot-proxy start
 copilot-proxy config claude   # or: codex | gemini | all
 ```
 
-Once running, point any OpenAI/Anthropic client at the proxy:
-
-```bash
-# OpenAI-compatible
-curl http://127.0.0.1:8989/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}'
-
-# Anthropic-compatible
-curl http://127.0.0.1:8989/v1/messages \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"claude-opus-4.6","max_tokens":256,"messages":[{"role":"user","content":"hi"}]}'
-```
-
-Any API key will do — the proxy uses your GitHub Copilot session, not the client-provided key.
+Once running, point any OpenAI/Anthropic/Gemini client at the proxy. Any API key will do — the proxy uses your GitHub Copilot session, not the client-provided key.
 
 ## CLI
 
@@ -76,11 +65,24 @@ Run `copilot-proxy --help` for the full listing with examples.
 ```bash
 copilot-proxy config claude    # writes ~/.claude/settings.json (+ Windows path under WSL)
 copilot-proxy config codex     # writes ~/.codex/config.toml  (Copilot Proxy or AOAI mode)
-copilot-proxy config gemini    # prints the GEMINI_API_* env vars to export
+copilot-proxy config gemini    # writes ~/.gemini/.env + ~/.gemini/settings.json
 copilot-proxy config all       # all of the above
 ```
 
 Existing settings are **merged**, not overwritten.
+
+### Optional: Web search via Tavily
+
+Edit `~/.copilot-proxy/config.yaml` (auto-generated on first run) and fill in the `web_search` block:
+
+```yaml
+web_search:
+  enabled: true
+  provider: "tavily"
+  tavily_api_key: "tvly-..."   # get one at https://tavily.com
+```
+
+Restart the proxy. When a model rejects Anthropic's `web_search` tool, the proxy will run the query via Tavily and inject synthetic `server_tool_use` / `web_search_tool_result` blocks so the client still gets a normal Anthropic-shaped response. With `enabled: false` (the default) or a blank key, `web_search` requests are passed through unchanged and may be rejected by the upstream model.
 
 ### `logs` — inspect requests
 
@@ -95,7 +97,7 @@ Existing settings are **merged**, not overwritten.
  └─ request time
 ```
 
-Request logs live at `~/.config/copilot-proxy/requests-YYYY-MM-DD.jsonl`.
+Request logs live at `~/.copilot-proxy/logs/requests/YYYY-MM-DD.jsonl`.
 
 ### `service install` (Linux/WSL)
 
@@ -112,7 +114,7 @@ On WSL, systemd must be enabled (`systemd=true` in `/etc/wsl.conf`). To keep the
 
 ## Configuration file
 
-Optional YAML at `~/.config/copilot-proxy/config.yaml`. Defaults are fine for most users; override `port` / `address` / `log level` as needed. Environment variable `GITHUB_TOKEN` can be used in place of the interactive login.
+Optional YAML at `~/.copilot-proxy/config.yaml`. Defaults are fine for most users; override `port` / `address` / log level as needed. Set `web_search.enabled: true` + `web_search.tavily_api_key` to enable the Tavily fallback. Environment variable `GITHUB_TOKEN` can be used in place of the interactive login.
 
 ## Development
 
