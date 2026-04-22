@@ -1,6 +1,6 @@
 {
-  "name": "copilot-proxy",
-  "version": "0.1.0",
+  "name": "@ascdong/copilot-proxy",
+  "version": "0.1.1",
   "description": "GitHub Copilot Model API Proxy — expose Copilot as OpenAI/Anthropic-compatible endpoints for Claude Code, Codex, and Gemini CLIs.",
   "keywords": [
     "copilot",
@@ -24,7 +24,7 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "copilot-proxy": "./dist/index.js"
+    "copilot-proxy": "dist/index.js"
   },
   "files": [
     "dist",
@@ -37,8 +37,13 @@
     "start": "bun run src/index.ts start",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "test:unit": "bun test tests/unit",
+    "test:e2e": "bun test tests/e2e",
     "build": "bun build src/index.ts --outfile dist/index.js --target node --minify",
-    "prepublishOnly": "bun run typecheck && bun test && bun run build"
+    "prepublishOnly": "bun run typecheck && bun run test:unit && bun run build"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
     "@types/bun": "latest",

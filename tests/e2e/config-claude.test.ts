@@ -66,7 +66,7 @@ describe("Config Claude E2E", () => {
       { stdin: "pipe", stdout: "pipe", stderr: "pipe" }
     );
 
-    proc.stdin.write("1\n");
+    proc.stdin.write("\n1\n");   // Update? [Y/n] -> default Y; model -> 1
     proc.stdin.end();
 
     await proc.exited;

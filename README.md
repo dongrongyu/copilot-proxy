@@ -116,16 +116,10 @@ On WSL, systemd must be enabled (`systemd=true` in `/etc/wsl.conf`). To keep the
 
 Optional YAML at `~/.copilot-proxy/config.yaml`. Defaults are fine for most users; override `port` / `address` / log level as needed. Set `web_search.enabled: true` + `web_search.tavily_api_key` to enable the Tavily fallback. Environment variable `GITHUB_TOKEN` can be used in place of the interactive login.
 
-## Development
+## References
 
-```bash
-git clone https://github.com/dongrongyu/copilot-proxy.git
-cd copilot-proxy
-bun install
-bun run src/index.ts --help     # run from source
-bun test                        # unit tests
-bun run typecheck               # tsc --noEmit
-```
+- [sxwxs/ghc-api](https://github.com/sxwxs/ghc-api)
+- [Joouis/agent-maestro](https://github.com/Joouis/agent-maestro)
 
 ## License
 

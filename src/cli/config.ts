@@ -9,13 +9,42 @@ import { getGitHubToken } from "../auth/github-token";
 import { ensureCopilotToken, fetchModels } from "../auth/copilot-token";
 import { reverseModelName } from "../proxy/model-mapping";
 
+// Line-buffered stdin reader. A per-call readline.Interface loses buffered
+// data on close(); a shared one throws ERR_USE_AFTER_CLOSE once stdin hits
+// EOF (common with piped input). Instead, attach a single `line` listener,
+// queue incoming lines, and hand them to pending prompt() calls. After EOF
+// remaining prompts resolve with "" (accept defaults) instead of crashing.
+let _rl: ReturnType<typeof createInterface> | null = null;
+const _lineQueue: string[] = [];
+const _waiters: Array<(value: string) => void> = [];
+let _stdinEnded = false;
+
+function initReadline() {
+  if (_rl) return;
+  _rl = createInterface({ input: process.stdin, output: process.stdout });
+  _rl.on("line", (line) => {
+    const trimmed = line.trim();
+    const w = _waiters.shift();
+    if (w) w(trimmed);
+    else _lineQueue.push(trimmed);
+  });
+  _rl.on("close", () => {
+    _stdinEnded = true;
+    while (_waiters.length > 0) _waiters.shift()!("");
+  });
+}
+
+export function closePrompt() {
+  if (_rl) { _rl.close(); _rl = null; }
+}
+
 function prompt(question: string): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  initReadline();
+  process.stdout.write(question);
   return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(answer.trim());
-    });
+    if (_lineQueue.length > 0) resolve(_lineQueue.shift()!);
+    else if (_stdinEnded) resolve("");
+    else _waiters.push(resolve);
   });
 }
 
@@ -101,24 +130,28 @@ export async function configCommand(target: string, options?: { output?: string 
   const config = loadConfig();
   const baseUrl = `http://${config.address}:${config.port}`;
 
-  switch (target) {
-    case "claude":
-      await configClaude(baseUrl, options?.output);
-      break;
-    case "codex":
-      await configCodex(baseUrl, options?.output);
-      break;
-    case "gemini":
-      await configGemini(baseUrl, options?.output);
-      break;
-    case "all":
-      await configClaude(baseUrl, options?.output);
-      await configCodex(baseUrl, options?.output);
-      await configGemini(baseUrl, options?.output);
-      break;
-    default:
-      console.error(`Unknown target: ${target}. Use: claude, codex, gemini, or all`);
-      process.exit(1);
+  try {
+    switch (target) {
+      case "claude":
+        await configClaude(baseUrl, options?.output);
+        break;
+      case "codex":
+        await configCodex(baseUrl, options?.output);
+        break;
+      case "gemini":
+        await configGemini(baseUrl, options?.output);
+        break;
+      case "all":
+        await configClaude(baseUrl, options?.output);
+        await configCodex(baseUrl, options?.output);
+        await configGemini(baseUrl, options?.output);
+        break;
+      default:
+        console.error(`Unknown target: ${target}. Use: claude, codex, gemini, or all`);
+        process.exit(1);
+    }
+  } finally {
+    closePrompt();
   }
 }
 
