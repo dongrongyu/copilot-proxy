@@ -24,7 +24,7 @@ Runs on Node.js ≥ 20 (or [Bun](https://bun.sh/) in development).
 Requires Node.js ≥ 20.
 
 ```bash
-npm install -g copilot-proxy
+npm install -g @ascdong/copilot-proxy
 ```
 
 ## Quickstart
