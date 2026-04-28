@@ -52,31 +52,52 @@ function prompt(question: string): Promise<string> {
  * Detect Windows user home from WSL.
  * Tries wslvar+wslpath first, falls back to cmd.exe+wslpath.
  * Returns null if not in WSL or tools unavailable.
+ *
+ * All stderr is suppressed (`2>/dev/null` on the whole shell command, not just
+ * the outer call) so missing tools like `wslvar` (wslu package) don't leak
+ * errors to the user's terminal.
+ *
+ * Resolved paths are validated as absolute and existing — `wslpath ""` can
+ * resolve to `"."` on some setups, which would otherwise be treated as a valid
+ * home directory and produce relative `.claude/settings.json` paths.
  */
 function getWindowsHomePath(): string | null {
-  // Try wslvar (wslu package)
+  const isValidHome = (p: string): boolean =>
+    !!p && p.startsWith("/") && existsSync(p);
+
+  // Try wslvar (wslu package). Suppress stderr for the whole pipeline so
+  // "wslvar: not found" doesn't leak to the user.
   try {
-    const winProfile = execSync('wslpath "$(wslvar USERPROFILE)" 2>/dev/null', {
-      encoding: "utf-8",
-      timeout: 5000,
-    }).trim();
-    if (winProfile && existsSync(winProfile)) return winProfile;
+    const winProfile = execSync(
+      'sh -c \'wslpath "$(wslvar USERPROFILE)"\' 2>/dev/null',
+      { encoding: "utf-8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    if (isValidHome(winProfile)) return winProfile;
   } catch {}
 
-  // Fallback: cmd.exe
-  try {
-    const winPath = execSync('cmd.exe /c "echo %USERPROFILE%" 2>/dev/null', {
-      encoding: "utf-8",
-      timeout: 5000,
-    }).trim().replace(/\r/g, "");
-    if (winPath) {
-      const wslPath = execSync(`wslpath "${winPath}" 2>/dev/null`, {
+  // Fallback: cmd.exe (bundled with Windows; available in any WSL distro
+  // with WSLInterop enabled). If cmd.exe isn't on PATH (e.g. stripped under
+  // systemd user services), try the well-known System32 location directly.
+  const cmdCandidates = ["cmd.exe", "/mnt/c/Windows/System32/cmd.exe"];
+  for (const cmd of cmdCandidates) {
+    try {
+      const winPath = execSync(`${cmd} /c "echo %USERPROFILE%"`, {
         encoding: "utf-8",
         timeout: 5000,
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim().replace(/\r/g, "");
+      // Guard against empty / unresolved variables (e.g. literal "%USERPROFILE%").
+      if (!winPath || winPath.includes("%") || !/^[A-Za-z]:\\/.test(winPath)) {
+        continue;
+      }
+      const wslPath = execSync(`wslpath "${winPath}"`, {
+        encoding: "utf-8",
+        timeout: 5000,
+        stdio: ["ignore", "pipe", "ignore"],
       }).trim();
-      if (wslPath && existsSync(wslPath)) return wslPath;
-    }
-  } catch {}
+      if (isValidHome(wslPath)) return wslPath;
+    } catch {}
+  }
 
   return null;
 }
