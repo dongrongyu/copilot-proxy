@@ -37,7 +37,7 @@ copilot-proxy login
 copilot-proxy start
 
 # 3. (Optional) wire up a client CLI
-copilot-proxy config claude   # or: codex | gemini | all
+copilot-proxy config claude   # or: codex | gemini
 ```
 
 Once running, point any OpenAI/Anthropic/Gemini client at the proxy. Any API key will do — the proxy uses your GitHub Copilot session, not the client-provided key.
@@ -50,12 +50,13 @@ copilot-proxy <command> [options]
 Commands:
   start [-p <port>] [-H <host>]        start the proxy server
   login                                sign in to GitHub via Device Flow OAuth
-  config <claude|codex|gemini|all>     configure a client tool
+  config <claude|codex|gemini>         configure a client tool
          [-o <path>]                   override the settings output path
   usage [-m <YYYY-MM>]                 show token usage statistics
   logs  [-l <n>] [-e] [--model <m>]    show recent request logs
         [-d <YYYY-MM-DD>]
-  service <install|uninstall>          manage the systemd user service (Linux/WSL)
+  service <install|uninstall|reinstall>
+                                       manage the systemd user service (Linux/WSL)
 ```
 
 Run `copilot-proxy --help` for the full listing with examples.
@@ -66,7 +67,6 @@ Run `copilot-proxy --help` for the full listing with examples.
 copilot-proxy config claude    # writes ~/.claude/settings.json (+ Windows path under WSL)
 copilot-proxy config codex     # writes ~/.codex/config.toml  (Copilot Proxy or AOAI mode)
 copilot-proxy config gemini    # writes ~/.gemini/.env + ~/.gemini/settings.json
-copilot-proxy config all       # all of the above
 ```
 
 Existing settings are **merged**, not overwritten.
@@ -107,6 +107,7 @@ Registers a **user-level** systemd unit (`~/.config/systemd/user/copilot-proxy.s
 copilot-proxy service install
 systemctl --user status copilot-proxy
 journalctl --user -u copilot-proxy -f
+copilot-proxy service reinstall   # uninstall then install (e.g. after upgrading)
 copilot-proxy service uninstall
 ```
 

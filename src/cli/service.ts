@@ -14,11 +14,15 @@ function getServicePath(): string {
   return join(getServiceDir(), `${SERVICE_NAME}.service`);
 }
 
-export async function serviceCommand(action: "install" | "uninstall") {
+export async function serviceCommand(action: "install" | "uninstall" | "reinstall") {
   if (action === "install") {
     installService();
+  } else if (action === "uninstall") {
+    uninstallService();
   } else {
     uninstallService();
+    console.log("");
+    installService();
   }
 }
 

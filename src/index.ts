@@ -50,10 +50,10 @@ program
 
 program
   .command("service <action>")
-  .description("manage the systemd user service: install | uninstall (WSL/Linux)")
+  .description("manage the systemd user service: install | uninstall | reinstall (WSL/Linux)")
   .action((action: string) => {
-    if (action !== "install" && action !== "uninstall") {
-      console.error(`Unknown action: ${action}. Use: install | uninstall`);
+    if (action !== "install" && action !== "uninstall" && action !== "reinstall") {
+      console.error(`Unknown action: ${action}. Use: install | uninstall | reinstall`);
       process.exit(1);
     }
     serviceCommand(action);
