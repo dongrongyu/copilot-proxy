@@ -42,23 +42,32 @@ describe("Model Mapping", () => {
     test("claude-sonnet-4-xxx -> claude-sonnet-4", () => {
       expect(translateModelName("claude-sonnet-4-20250514")).toBe("claude-sonnet-4");
     });
-    test("claude-haiku-4.5-xxx -> claude-haiku-4.5", () => {
-      expect(translateModelName("claude-haiku-4.5-20250101")).toBe("claude-haiku-4.5");
+    test("dot-form passes through (claude-haiku-4.5-20250101)", () => {
+      expect(translateModelName("claude-haiku-4.5-20250101")).toBe("claude-haiku-4.5-20250101");
     });
-    test("claude-opus-4.6-xxx -> claude-opus-4.6", () => {
-      expect(translateModelName("claude-opus-4.6-preview")).toBe("claude-opus-4.6");
+    test("dot-form passes through (claude-opus-4.6-preview)", () => {
+      expect(translateModelName("claude-opus-4.6-preview")).toBe("claude-opus-4.6-preview");
+    });
+    test("dot-form 1M variant passes through (claude-opus-4.6-1m)", () => {
+      expect(translateModelName("claude-opus-4.6-1m")).toBe("claude-opus-4.6-1m");
+    });
+    test("dot-form 1M variant passes through (claude-opus-4.7-1m-internal)", () => {
+      expect(translateModelName("claude-opus-4.7-1m-internal")).toBe("claude-opus-4.7-1m-internal");
+    });
+    test("dot-form effort variant passes through (claude-opus-4.7-xhigh)", () => {
+      expect(translateModelName("claude-opus-4.7-xhigh")).toBe("claude-opus-4.7-xhigh");
     });
   });
 
-  describe("[1m] smart parsing", () => {
-    test("claude-opus-4-6[1m] -> claude-opus-4.6-1m", () => {
-      expect(translateModelName("claude-opus-4-6[1m]")).toBe("claude-opus-4.6-1m");
+  describe("[1m] marker handling", () => {
+    test("strips [1m] and passes through full Copilot id", () => {
+      expect(translateModelName("claude-opus-4.6-1m[1m]")).toBe("claude-opus-4.6-1m");
     });
-    test("claude-haiku-4-5[1m] -> claude-haiku-4.5-1m", () => {
-      expect(translateModelName("claude-haiku-4-5[1m]")).toBe("claude-haiku-4.5-1m");
+    test("strips [1m] from -1m-internal id", () => {
+      expect(translateModelName("claude-opus-4.7-1m-internal[1m]")).toBe("claude-opus-4.7-1m-internal");
     });
-    test("unknown-model[1m] -> unknown-model-1m", () => {
-      expect(translateModelName("unknown-model[1m]")).toBe("unknown-model-1m");
+    test("strips [1m] from arbitrary id", () => {
+      expect(translateModelName("any-model-name[1m]")).toBe("any-model-name");
     });
   });
 
@@ -100,8 +109,11 @@ describe("Model Mapping", () => {
   });
 
   describe("reverseModelName", () => {
-    test("converts -1m suffix to [1m]", () => {
-      expect(reverseModelName("claude-opus-4.6-1m")).toBe("claude-opus-4.6[1m]");
+    test("appends [1m] for -1m suffix", () => {
+      expect(reverseModelName("claude-opus-4.6-1m")).toBe("claude-opus-4.6-1m[1m]");
+    });
+    test("appends [1m] for -1m-internal suffix", () => {
+      expect(reverseModelName("claude-opus-4.7-1m-internal")).toBe("claude-opus-4.7-1m-internal[1m]");
     });
     test("passes through models without -1m", () => {
       expect(reverseModelName("claude-opus-4.6")).toBe("claude-opus-4.6");

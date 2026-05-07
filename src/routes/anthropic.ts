@@ -90,15 +90,33 @@ function adjustMaxTokensForThinking(payload: any): any {
 /**
  * Convert thinking.type "enabled" to "adaptive" for models that require it (e.g. opus-4.7+).
  * These models use thinking.type: "adaptive" + output_config.effort instead.
+ *
+ * Some 4.7 variants pin a specific effort level via the model name suffix
+ * (e.g. claude-opus-4.7-xhigh only accepts effort "xhigh"). Detect that and
+ * propagate it; otherwise default to "medium".
  */
 function adjustThinkingForModel(payload: any, model: string): any {
   if (payload.thinking?.type !== "enabled") return payload;
   if (!model.includes("4.7") && !model.includes("4-7")) return payload;
 
+  const effort = detectEffortSuffix(model) ?? "medium";
+
   const result = { ...payload };
   result.thinking = { type: "adaptive" };
-  result.output_config = { ...(payload.output_config ?? {}), effort: "medium" };
+  result.output_config = { ...(payload.output_config ?? {}), effort };
   return result;
+}
+
+/**
+ * Extract a trailing effort token (low|medium|high|xhigh) from a model id.
+ * Returns null when the model has no effort-pinned suffix.
+ */
+function detectEffortSuffix(model: string): string | null {
+  const efforts = ["xhigh", "high", "medium", "low"];
+  for (const e of efforts) {
+    if (model.endsWith(`-${e}`)) return e;
+  }
+  return null;
 }
 
 function makeLogEntry(
