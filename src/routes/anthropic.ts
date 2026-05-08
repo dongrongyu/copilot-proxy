@@ -91,15 +91,18 @@ function adjustMaxTokensForThinking(payload: any): any {
  * Convert thinking.type "enabled" to "adaptive" for models that require it (e.g. opus-4.7+).
  * These models use thinking.type: "adaptive" + output_config.effort instead.
  *
- * Some 4.7 variants pin a specific effort level via the model name suffix
- * (e.g. claude-opus-4.7-xhigh only accepts effort "xhigh"). Detect that and
- * propagate it; otherwise default to "medium".
+ * Effort is taken from the model's `capabilities.supports.reasoning_effort`
+ * advertised by the Copilot `/models` endpoint — we always send the strongest
+ * value the server will accept. Plain `claude-opus-4.7` is pinned to medium
+ * server-side; `-xhigh` siblings advertise xhigh; the 1m-internal variant
+ * advertises xhigh natively. Falls back to "medium" only when metadata is
+ * missing.
  */
 function adjustThinkingForModel(payload: any, model: string): any {
   if (payload.thinking?.type !== "enabled") return payload;
   if (!model.includes("4.7") && !model.includes("4-7")) return payload;
 
-  const effort = detectEffortSuffix(model) ?? "medium";
+  const effort = getMaxEffortFromModelCatalog(model) ?? "medium";
 
   const result = { ...payload };
   result.thinking = { type: "adaptive" };
@@ -108,13 +111,18 @@ function adjustThinkingForModel(payload: any, model: string): any {
 }
 
 /**
- * Extract a trailing effort token (low|medium|high|xhigh) from a model id.
- * Returns null when the model has no effort-pinned suffix.
+ * Look up the model's strongest supported reasoning effort from the cached
+ * Copilot `/models` catalog. Returns null when the model is unknown or has
+ * no reasoning_effort capability.
  */
-function detectEffortSuffix(model: string): string | null {
-  const efforts = ["xhigh", "high", "medium", "low"];
-  for (const e of efforts) {
-    if (model.endsWith(`-${e}`)) return e;
+function getMaxEffortFromModelCatalog(model: string): string | null {
+  const state = getState();
+  const entry = state.models?.data?.find((m: any) => m.id === model);
+  const supported: string[] | undefined = (entry as any)?.capabilities?.supports?.reasoning_effort;
+  if (!supported || supported.length === 0) return null;
+  const priority = ["xhigh", "high", "medium", "low", "minimal", "none"];
+  for (const e of priority) {
+    if (supported.includes(e)) return e;
   }
   return null;
 }

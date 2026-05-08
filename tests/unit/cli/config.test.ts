@@ -6,6 +6,7 @@ import {
   buildCodexProxyToml,
   buildCodexAoaiToml,
   mergeCodexToml,
+  pickMaxReasoningEffort,
 } from "../../../src/cli/config";
 
 describe("Config Utilities", () => {
@@ -96,17 +97,68 @@ describe("Config Utilities", () => {
   });
 
   describe("buildCodexProxyToml", () => {
-    test("emits required keys and section", () => {
-      const toml = buildCodexProxyToml("http://localhost:8989", "gpt-5");
+    test("emits required keys and section (no reasoning_effort when unsupported)", () => {
+      const toml = buildCodexProxyToml("http://localhost:8989", "gpt-4o");
       expect(toml).toContain(`model_provider = "copilot-proxy"`);
-      expect(toml).toContain(`model = "gpt-5"`);
+      expect(toml).toContain(`model = "gpt-4o"`);
       expect(toml).toContain(`approval_policy = "never"`);
       expect(toml).toContain(`sandbox_mode = "danger-full-access"`);
       expect(toml).toContain(`[model_providers.copilot-proxy]`);
       expect(toml).toContain(`base_url = "http://localhost:8989/v1"`);
       expect(toml).toContain(`wire_api = "responses"`);
+      expect(toml).not.toContain("model_reasoning_effort");
       expect(toml).not.toContain("profile =");
       expect(toml).not.toContain("env_key");
+    });
+
+    test("uses max effort from supported list (gpt-5 → xhigh)", () => {
+      const toml = buildCodexProxyToml("http://x", "gpt-5", [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+      ]);
+      expect(toml).toContain(`model_reasoning_effort = "xhigh"`);
+    });
+
+    test("uses max effort from supported list (claude-opus-4.6 → high)", () => {
+      const toml = buildCodexProxyToml("http://x", "claude-opus-4.6", [
+        "low",
+        "medium",
+        "high",
+      ]);
+      expect(toml).toContain(`model_reasoning_effort = "high"`);
+    });
+
+    test("uses pinned effort when API exposes only one (claude-opus-4.7-xhigh)", () => {
+      const toml = buildCodexProxyToml("http://x", "claude-opus-4.7-xhigh", [
+        "xhigh",
+      ]);
+      expect(toml).toContain(`model_reasoning_effort = "xhigh"`);
+    });
+
+    test("omits reasoning_effort line for empty list", () => {
+      const toml = buildCodexProxyToml("http://x", "gpt-4o", []);
+      expect(toml).not.toContain("model_reasoning_effort");
+    });
+  });
+
+  describe("pickMaxReasoningEffort", () => {
+    test("picks xhigh when present", () => {
+      expect(pickMaxReasoningEffort(["low", "medium", "high", "xhigh"])).toBe(
+        "xhigh",
+      );
+    });
+    test("picks high when xhigh absent", () => {
+      expect(pickMaxReasoningEffort(["low", "medium", "high"])).toBe("high");
+    });
+    test("returns null for empty/undefined/null", () => {
+      expect(pickMaxReasoningEffort([])).toBeNull();
+      expect(pickMaxReasoningEffort(undefined)).toBeNull();
+      expect(pickMaxReasoningEffort(null)).toBeNull();
+    });
+    test("ignores unknown values", () => {
+      expect(pickMaxReasoningEffort(["bogus"])).toBeNull();
     });
   });
 

@@ -183,15 +183,44 @@ export async function configCommand(target: string, options?: { output?: string 
 const CODEX_PROVIDER_KEY = "copilot-proxy";
 const AOAI_DEFAULT_API_VERSION = "2025-04-01-preview";
 
+// Reasoning efforts ordered strongest → weakest. Whatever the Copilot
+// `/models` endpoint advertises as supported, we pick the first one that
+// appears in this list.
+const EFFORT_PRIORITY = ["xhigh", "high", "medium", "low", "minimal", "none"];
+
+/**
+ * Pick the strongest reasoning effort from a `supported` array (as advertised
+ * by Copilot's `capabilities.supports.reasoning_effort`). Returns null when
+ * the model doesn't expose a reasoning_effort capability.
+ */
+export function pickMaxReasoningEffort(supported?: string[] | null): string | null {
+  if (!supported || supported.length === 0) return null;
+  for (const e of EFFORT_PRIORITY) {
+    if (supported.includes(e)) return e;
+  }
+  return null;
+}
+
 /**
  * Build Codex TOML for Copilot Proxy mode.
+ *
+ * `supportedEfforts` is the model's `capabilities.supports.reasoning_effort`
+ * array from the Copilot `/models` endpoint. The strongest entry is written
+ * as `model_reasoning_effort`. If the model doesn't advertise any reasoning
+ * efforts, that line is omitted entirely.
  */
-export function buildCodexProxyToml(baseUrl: string, model: string): string {
+export function buildCodexProxyToml(
+  baseUrl: string,
+  model: string,
+  supportedEfforts?: string[] | null,
+): string {
+  const effort = pickMaxReasoningEffort(supportedEfforts);
+  const effortLine = effort ? `model_reasoning_effort = "${effort}"\n` : "";
   return `approval_policy = "never"
 sandbox_mode = "danger-full-access"
 model_provider = "${CODEX_PROVIDER_KEY}"
 model = "${model}"
-
+${effortLine}
 [model_providers.${CODEX_PROVIDER_KEY}]
 name = "Copilot Proxy"
 base_url = "${baseUrl}/v1"
@@ -542,7 +571,10 @@ async function configCodex(baseUrl: string, outputPath?: string) {
     }
 
     console.log(`\nUsing model: ${selectedModel}`);
-    tomlContent = buildCodexProxyToml(baseUrl, selectedModel);
+    const modelObj = modelList.find((m: any) => m.id === selectedModel);
+    const supportedEfforts: string[] | undefined = (modelObj as any)
+      ?.capabilities?.supports?.reasoning_effort;
+    tomlContent = buildCodexProxyToml(baseUrl, selectedModel, supportedEfforts);
   } else {
     // AOAI
     const baseUrlInput = await prompt("Base URL (e.g. https://xxx.cognitiveservices.azure.com/openai): ");
