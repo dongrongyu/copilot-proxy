@@ -75,6 +75,7 @@ ExecStart=${execStart}
 Restart=on-failure
 RestartSec=5
 ${tokenEnv}
+Environment="PATH=${process.env.PATH}"
 
 [Install]
 WantedBy=default.target
