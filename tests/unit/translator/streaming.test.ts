@@ -112,7 +112,8 @@ describe("Streaming Translation", () => {
         choices: [],
       }, state);
 
-      expect(state.totalInputTokens).toBe(100);
+      // totalInputTokens is fresh-input-only: prompt_tokens - cached_tokens.
+      expect(state.totalInputTokens).toBe(20);
       expect(state.totalOutputTokens).toBe(50);
       expect(state.cacheReadInputTokens).toBe(80);
     });
