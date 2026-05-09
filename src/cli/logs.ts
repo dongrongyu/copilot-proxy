@@ -50,15 +50,17 @@ export async function logsCommand(opts: {
         `[${time}] ${String(e.status_code).padEnd(3)}  ${shortModel.padEnd(24)} ${e.endpoint.padEnd(20)} ERROR: ${e.error.slice(0, 60)}`
       );
     } else {
-      const inK = e.input_tokens >= 1000
-        ? `${(e.input_tokens / 1000).toFixed(1)}K`
-        : String(e.input_tokens);
-      const outK = e.output_tokens >= 1000
-        ? `${(e.output_tokens / 1000).toFixed(1)}K`
-        : String(e.output_tokens);
+      const fmtK = (n: number) =>
+        n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
+      const inK = fmtK(e.input_tokens ?? 0);
+      const ccK = fmtK(e.cache_creation_input_tokens ?? 0);
+      const crK = fmtK(e.cache_read_input_tokens ?? 0);
+      const outK = fmtK(e.output_tokens ?? 0);
+      const rK = fmtK(e.reasoning_tokens ?? 0);
       const dur = (e.duration_ms / 1000).toFixed(1);
       console.log(
-        `[${time}] ${String(e.status_code).padEnd(3)}  ${shortModel.padEnd(24)} ${e.endpoint.padEnd(20)} ${inK.padStart(6)} in ${outK.padStart(6)} out  ${dur}s`
+        `[${time}] ${String(e.status_code).padEnd(3)}  ${shortModel.padEnd(24)} ${e.endpoint.padEnd(20)} ` +
+          `${inK.padStart(6)} in ${ccK.padStart(6)} cc ${crK.padStart(6)} cr ${outK.padStart(6)} out ${rK.padStart(5)} r  ${dur}s`
       );
     }
   }

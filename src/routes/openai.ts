@@ -28,9 +28,34 @@ function makeLogEntry(
     model: originalModel,
     translated_model: translatedModel !== originalModel ? translatedModel : null,
     endpoint,
+    provider: "openai",
     input_tokens: 0, output_tokens: 0,
     cache_creation_input_tokens: 0, cache_read_input_tokens: 0,
+    reasoning_tokens: 0,
     duration_ms: 0, status_code: 200, error: null,
+  };
+}
+
+/**
+ * Extract the 5-category token split from an OpenAI-style usage object.
+ * Works for /chat/completions usage and /v1/responses usage (after key
+ * normalisation by the caller).
+ */
+function extractOpenAIUsage(usage: any): {
+  input_tokens: number;
+  cache_read_input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+} {
+  const promptTokens = usage?.prompt_tokens ?? 0;
+  const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
+  const completionTokens = usage?.completion_tokens ?? 0;
+  const reasoningTokens = usage?.completion_tokens_details?.reasoning_tokens ?? 0;
+  return {
+    input_tokens: Math.max(0, promptTokens - cachedTokens),
+    cache_read_input_tokens: cachedTokens,
+    output_tokens: Math.max(0, completionTokens - reasoningTokens),
+    reasoning_tokens: reasoningTokens,
   };
 }
 
@@ -109,8 +134,7 @@ for (const path of ["/v1/chat/completions", "/chat/completions"]) {
           } finally {
             logRequest({
               ...makeLogEntry(requestId, originalModel, translatedModel, path, startTime),
-              input_tokens: usage.prompt_tokens ?? 0,
-              output_tokens: usage.completion_tokens ?? 0,
+              ...extractOpenAIUsage(usage),
               duration_ms: Date.now() - startTime,
             } as RequestLogEntry);
           }
@@ -123,8 +147,7 @@ for (const path of ["/v1/chat/completions", "/chat/completions"]) {
 
       logRequest({
         ...makeLogEntry(requestId, originalModel, translatedModel, path, startTime),
-        input_tokens: usage.prompt_tokens ?? 0,
-        output_tokens: usage.completion_tokens ?? 0,
+        ...extractOpenAIUsage(usage),
         duration_ms: Date.now() - startTime,
         status_code: resp.status,
         error: resp.ok ? null : body.slice(0, 500),
@@ -205,10 +228,16 @@ openaiRouter.post("/v1/responses", async (c) => {
             }
           }
         } finally {
+          const cachedTokens = usage.input_tokens_details?.cached_tokens ?? 0;
+          const reasoningTokens = usage.output_tokens_details?.reasoning_tokens ?? 0;
+          const rawInput = usage.input_tokens ?? usage.prompt_tokens ?? 0;
+          const rawOutput = usage.output_tokens ?? usage.completion_tokens ?? 0;
           logRequest({
             ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/responses", startTime),
-            input_tokens: usage.input_tokens ?? usage.prompt_tokens ?? 0,
-            output_tokens: usage.output_tokens ?? usage.completion_tokens ?? 0,
+            input_tokens: Math.max(0, rawInput - cachedTokens),
+            cache_read_input_tokens: cachedTokens,
+            output_tokens: Math.max(0, rawOutput - reasoningTokens),
+            reasoning_tokens: reasoningTokens,
             duration_ms: Date.now() - startTime,
           } as RequestLogEntry);
         }
@@ -220,15 +249,22 @@ openaiRouter.post("/v1/responses", async (c) => {
     if (resp.ok) {
       try { usage = JSON.parse(body).usage ?? {}; } catch {}
     }
-    logRequest({
-      ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/responses", startTime),
-      input_tokens: usage.input_tokens ?? 0,
-      output_tokens: usage.output_tokens ?? 0,
-      cache_read_input_tokens: usage.input_tokens_details?.cached_tokens ?? 0,
-      duration_ms: Date.now() - startTime,
-      status_code: resp.status,
-      error: resp.ok ? null : body.slice(0, 500),
-    } as RequestLogEntry);
+    {
+      const cachedTokens = usage.input_tokens_details?.cached_tokens ?? 0;
+      const reasoningTokens = usage.output_tokens_details?.reasoning_tokens ?? 0;
+      const rawInput = usage.input_tokens ?? 0;
+      const rawOutput = usage.output_tokens ?? 0;
+      logRequest({
+        ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/responses", startTime),
+        input_tokens: Math.max(0, rawInput - cachedTokens),
+        cache_read_input_tokens: cachedTokens,
+        output_tokens: Math.max(0, rawOutput - reasoningTokens),
+        reasoning_tokens: reasoningTokens,
+        duration_ms: Date.now() - startTime,
+        status_code: resp.status,
+        error: resp.ok ? null : body.slice(0, 500),
+      } as RequestLogEntry);
+    }
 
     return new Response(body, { status: resp.status, headers: { "Content-Type": "application/json" } });
   } catch (err) {
@@ -314,8 +350,7 @@ async function handleResponsesViaChat(
         } finally {
           logRequest({
             ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/responses", startTime),
-            input_tokens: state.usage.prompt_tokens ?? 0,
-            output_tokens: state.usage.completion_tokens ?? 0,
+            ...extractOpenAIUsage(state.usage),
             duration_ms: Date.now() - startTime,
           } as RequestLogEntry);
         }
@@ -331,8 +366,7 @@ async function handleResponsesViaChat(
 
     logRequest({
       ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/responses", startTime),
-      input_tokens: usage.prompt_tokens ?? 0,
-      output_tokens: usage.completion_tokens ?? 0,
+      ...extractOpenAIUsage(usage),
       duration_ms: Date.now() - startTime,
       status_code: resp.status,
     } as RequestLogEntry);

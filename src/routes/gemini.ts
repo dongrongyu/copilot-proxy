@@ -116,10 +116,12 @@ function makeLogEntry(
     model: originalModel,
     translated_model: null,
     endpoint,
+    provider: "gemini",
     input_tokens: 0,
     output_tokens: 0,
     cache_creation_input_tokens: 0,
     cache_read_input_tokens: 0,
+    reasoning_tokens: 0,
     duration_ms: 0,
     status_code: 200,
     error: null,
@@ -276,6 +278,8 @@ async function handleGenerateContent(
             ...makeLogEntry(requestId, model, endpoint, startTime),
             input_tokens: state.totalInputTokens,
             output_tokens: state.totalOutputTokens,
+            cache_read_input_tokens: state.cacheReadInputTokens,
+            reasoning_tokens: state.reasoningTokens,
             duration_ms: Date.now() - startTime,
           } as RequestLogEntry);
         }
@@ -304,10 +308,14 @@ async function handleGenerateContent(
     } catch {}
     const geminiResp = convertOpenAIResponseToGemini(openaiResp, model);
     const usage = openaiResp.usage ?? {};
+    const cachedTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
+    const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
     logRequest({
       ...makeLogEntry(requestId, model, endpoint, startTime),
-      input_tokens: usage.prompt_tokens ?? 0,
-      output_tokens: usage.completion_tokens ?? 0,
+      input_tokens: Math.max(0, (usage.prompt_tokens ?? 0) - cachedTokens),
+      output_tokens: Math.max(0, (usage.completion_tokens ?? 0) - reasoningTokens),
+      cache_read_input_tokens: cachedTokens,
+      reasoning_tokens: reasoningTokens,
       duration_ms: Date.now() - startTime,
       status_code: resp.status,
     } as RequestLogEntry);

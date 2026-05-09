@@ -40,8 +40,8 @@ export async function startServer(opts: { port?: string; host?: string }) {
   // Create and start server
   const app = createApp();
 
-  // Clean up old request logs on startup
-  cleanupOldLogs(30);
+  // Clean up old request logs on startup (default retention: 180 days)
+  cleanupOldLogs();
 
   console.log(`\n[Server] Starting on http://${config.address}:${config.port}`);
 

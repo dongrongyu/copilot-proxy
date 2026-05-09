@@ -131,14 +131,17 @@ function makeLogEntry(
   requestId: string, originalModel: string, translatedModel: string,
   endpoint: string, startTime: number
 ): Partial<RequestLogEntry> {
+  const useDirect = supportsDirectAnthropicApi(translatedModel);
   return {
     timestamp: new Date().toISOString(),
     request_id: requestId,
     model: originalModel,
     translated_model: translatedModel !== originalModel ? translatedModel : null,
     endpoint,
+    provider: useDirect ? "anthropic" : "openai",
     input_tokens: 0, output_tokens: 0,
     cache_creation_input_tokens: 0, cache_read_input_tokens: 0,
+    reasoning_tokens: 0,
     duration_ms: 0, status_code: 200, error: null,
   };
 }
@@ -387,11 +390,14 @@ async function handleTranslatedAnthropic(
           anthropicResp.content = [...searchBlocks, ...(anthropicResp.content ?? [])];
         }
         const usage = (openaiResp as any).usage ?? {};
+        const cachedTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
+        const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
         logRequest({
           ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime),
-          input_tokens: usage.prompt_tokens ?? 0,
-          output_tokens: usage.completion_tokens ?? 0,
-          cache_read_input_tokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+          input_tokens: Math.max(0, (usage.prompt_tokens ?? 0) - cachedTokens),
+          output_tokens: Math.max(0, (usage.completion_tokens ?? 0) - reasoningTokens),
+          cache_read_input_tokens: cachedTokens,
+          reasoning_tokens: reasoningTokens,
           duration_ms: Date.now() - startTime,
         } as RequestLogEntry);
         return c.json(anthropicResp);
@@ -511,7 +517,9 @@ function streamTranslatedAnthropic(
         ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime),
         input_tokens: sState.totalInputTokens,
         output_tokens: sState.totalOutputTokens,
+        cache_creation_input_tokens: sState.cacheCreationInputTokens,
         cache_read_input_tokens: sState.cacheReadInputTokens,
+        reasoning_tokens: sState.reasoningTokens,
         duration_ms: Date.now() - startTime,
       } as RequestLogEntry);
     }

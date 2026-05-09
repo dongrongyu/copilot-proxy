@@ -9,7 +9,9 @@ export class AnthropicStreamState {
   toolCalls: Map<number, { id: string; name: string; args: string }> = new Map();
   totalInputTokens = 0;
   totalOutputTokens = 0;
+  cacheCreationInputTokens = 0;
   cacheReadInputTokens = 0;
+  reasoningTokens = 0;
   model = "unknown";
 }
 
@@ -30,10 +32,18 @@ export function translateChunkToAnthropicEvents(
 
   // Track usage from final chunk
   if (chunk.usage) {
-    state.totalInputTokens = chunk.usage.prompt_tokens ?? 0;
-    state.totalOutputTokens = chunk.usage.completion_tokens ?? 0;
-    state.cacheReadInputTokens =
-      chunk.usage.prompt_tokens_details?.cached_tokens ?? 0;
+    const promptTokens = chunk.usage.prompt_tokens ?? 0;
+    const cachedTokens = chunk.usage.prompt_tokens_details?.cached_tokens ?? 0;
+    const completionTokens = chunk.usage.completion_tokens ?? 0;
+    const reasoningTokens = chunk.usage.completion_tokens_details?.reasoning_tokens ?? 0;
+    // input_tokens excludes cached portion; cache_read_input_tokens carries the cached split.
+    state.totalInputTokens = Math.max(0, promptTokens - cachedTokens);
+    state.cacheReadInputTokens = cachedTokens;
+    // OpenAI has no cache-creation concept.
+    state.cacheCreationInputTokens = 0;
+    state.reasoningTokens = reasoningTokens;
+    // output_tokens excludes the reasoning split, mirroring the 5-category schema.
+    state.totalOutputTokens = Math.max(0, completionTokens - reasoningTokens);
   }
 
   if (chunk.model) {

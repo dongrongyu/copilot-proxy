@@ -13,6 +13,8 @@ export class GeminiStreamState {
   responseId?: string;
   totalInputTokens = 0;
   totalOutputTokens = 0;
+  cacheReadInputTokens = 0;
+  reasoningTokens = 0;
   finishEmitted = false;
   // Per-index tool call state: id, name, args-so-far, emitted flag
   toolCalls: Map<number, { id: string; name: string; args: string; emitted: boolean }> =
@@ -44,8 +46,14 @@ export function translateOpenAIChunkToGemini(
 
   if (chunk?.id && !state.responseId) state.responseId = chunk.id;
   if (chunk?.usage) {
-    state.totalInputTokens = chunk.usage.prompt_tokens ?? state.totalInputTokens;
-    state.totalOutputTokens = chunk.usage.completion_tokens ?? state.totalOutputTokens;
+    const promptTokens = chunk.usage.prompt_tokens ?? 0;
+    const cachedTokens = chunk.usage.prompt_tokens_details?.cached_tokens ?? 0;
+    const completionTokens = chunk.usage.completion_tokens ?? 0;
+    const reasoningTokens = chunk.usage.completion_tokens_details?.reasoning_tokens ?? 0;
+    state.totalInputTokens = Math.max(0, promptTokens - cachedTokens);
+    state.cacheReadInputTokens = cachedTokens;
+    state.reasoningTokens = reasoningTokens;
+    state.totalOutputTokens = Math.max(0, completionTokens - reasoningTokens);
   }
 
   const choice = chunk?.choices?.[0];

@@ -1,140 +1,97 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, readdirSync, unlinkSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, appendFileSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { getConfigDir } from "../config/loader";
 
+export type Provider = "anthropic" | "openai" | "gemini";
+
+/**
+ * Per-request usage record. The 5 token categories are mutually exclusive:
+ *   total_processed_input  = input_tokens + cache_creation_input_tokens + cache_read_input_tokens
+ *   total_produced_output  = output_tokens + reasoning_tokens
+ *
+ * Provider-specific extraction rules:
+ *   - Anthropic: input_tokens / cache_* fields come straight from usage.* (already disjoint).
+ *                reasoning_tokens stays 0 because Anthropic does not report thinking
+ *                separately; thinking remains rolled into output_tokens.
+ *   - OpenAI:    input_tokens = prompt_tokens - cached_tokens (cached split out).
+ *                cache_creation_input_tokens = 0 (no equivalent concept).
+ *                cache_read_input_tokens = prompt_tokens_details.cached_tokens.
+ *                reasoning_tokens = completion_tokens_details.reasoning_tokens.
+ *                output_tokens = completion_tokens - reasoning_tokens.
+ *   - Gemini:    routed through OpenAI translation; same rules as OpenAI.
+ */
 export interface RequestLogEntry {
   timestamp: string;
   request_id: string;
   model: string;
   translated_model: string | null;
   endpoint: string;
+  provider: Provider;
   input_tokens: number;
-  output_tokens: number;
   cache_creation_input_tokens: number;
   cache_read_input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
   duration_ms: number;
   status_code: number;
   error: string | null;
 }
 
+interface CategoryTotals {
+  input_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+}
+
 interface MonthlyUsage {
   month: string;
   total_requests: number;
-  total_input_tokens: number;
-  total_output_tokens: number;
-  total_cache_creation_tokens: number;
-  total_cache_read_tokens: number;
-  by_model: Record<string, {
-    requests: number;
-    input_tokens: number;
-    output_tokens: number;
-    cache_creation_tokens: number;
-    cache_read_tokens: number;
-  }>;
-  by_day: Record<string, {
-    requests: number;
-    input_tokens: number;
-    output_tokens: number;
-  }>;
+  totals: CategoryTotals;
+  by_model: Record<string, CategoryTotals & { requests: number }>;
+  by_day: Record<string, CategoryTotals & { requests: number }>;
 }
 
 function getRequestLogDir(): string {
   return join(getConfigDir(), "logs", "requests");
 }
 
-function getUsageDir(): string {
-  return join(getConfigDir(), "logs", "usage");
-}
-
 /**
- * Log a completed request to JSONL file and update monthly usage (async, non-blocking).
+ * Append a completed request to the daily JSONL file. Aggregation is computed
+ * on demand from JSONL by readMonthlyUsage(); the hot path here only does one
+ * synchronous append.
  */
 export function logRequest(entry: RequestLogEntry): void {
   try {
-    // Append to daily JSONL
     const logDir = getRequestLogDir();
     mkdirSync(logDir, { recursive: true });
     const date = entry.timestamp.slice(0, 10); // YYYY-MM-DD
     const logPath = join(logDir, `${date}.jsonl`);
     appendFileSync(logPath, JSON.stringify(entry) + "\n", "utf-8");
-
-    // Update monthly usage asynchronously to avoid blocking the response
-    queueMicrotask(() => {
-      try {
-        updateMonthlyUsage(entry);
-      } catch (err) {
-        console.error(`[Usage] Failed to update monthly usage: ${err}`);
-      }
-    });
   } catch (err) {
     console.error(`[Usage] Failed to log request: ${err}`);
   }
 }
 
-function updateMonthlyUsage(entry: RequestLogEntry): void {
-  const usageDir = getUsageDir();
-  mkdirSync(usageDir, { recursive: true });
-
-  const month = entry.timestamp.slice(0, 7); // YYYY-MM
-  const day = entry.timestamp.slice(0, 10);   // YYYY-MM-DD
-  const usagePath = join(usageDir, `${month}.json`);
-  const model = entry.translated_model ?? entry.model;
-
-  let usage: MonthlyUsage;
-  if (existsSync(usagePath)) {
-    try {
-      usage = JSON.parse(readFileSync(usagePath, "utf-8"));
-    } catch {
-      usage = createEmptyMonthlyUsage(month);
-    }
-  } else {
-    usage = createEmptyMonthlyUsage(month);
-  }
-
-  // Update totals
-  usage.total_requests++;
-  usage.total_input_tokens += entry.input_tokens;
-  usage.total_output_tokens += entry.output_tokens;
-  usage.total_cache_creation_tokens += entry.cache_creation_input_tokens;
-  usage.total_cache_read_tokens += entry.cache_read_input_tokens;
-
-  // Update by_model
-  if (!usage.by_model[model]) {
-    usage.by_model[model] = {
-      requests: 0, input_tokens: 0, output_tokens: 0,
-      cache_creation_tokens: 0, cache_read_tokens: 0,
-    };
-  }
-  const m = usage.by_model[model];
-  m.requests++;
-  m.input_tokens += entry.input_tokens;
-  m.output_tokens += entry.output_tokens;
-  m.cache_creation_tokens += entry.cache_creation_input_tokens;
-  m.cache_read_tokens += entry.cache_read_input_tokens;
-
-  // Update by_day
-  if (!usage.by_day[day]) {
-    usage.by_day[day] = { requests: 0, input_tokens: 0, output_tokens: 0 };
-  }
-  const d = usage.by_day[day];
-  d.requests++;
-  d.input_tokens += entry.input_tokens;
-  d.output_tokens += entry.output_tokens;
-
-  writeFileSync(usagePath, JSON.stringify(usage, null, 2), "utf-8");
+function emptyCategoryTotals(): CategoryTotals {
+  return {
+    input_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+    output_tokens: 0,
+    reasoning_tokens: 0,
+  };
 }
 
-function createEmptyMonthlyUsage(month: string): MonthlyUsage {
-  return {
-    month,
-    total_requests: 0,
-    total_input_tokens: 0,
-    total_output_tokens: 0,
-    total_cache_creation_tokens: 0,
-    total_cache_read_tokens: 0,
-    by_model: {},
-    by_day: {},
-  };
+function addEntryTo(target: CategoryTotals, entry: RequestLogEntry): void {
+  // Coerce missing fields to 0 — legacy JSONL entries written before the
+  // 5-category schema may not have cache_*/reasoning_tokens fields.
+  target.input_tokens += entry.input_tokens ?? 0;
+  target.cache_creation_input_tokens += entry.cache_creation_input_tokens ?? 0;
+  target.cache_read_input_tokens += entry.cache_read_input_tokens ?? 0;
+  target.output_tokens += entry.output_tokens ?? 0;
+  target.reasoning_tokens += entry.reasoning_tokens ?? 0;
 }
 
 /**
@@ -151,16 +108,61 @@ export function readRequestLogs(date: string): RequestLogEntry[] {
 }
 
 /**
- * Read monthly usage for a specific month.
+ * Aggregate monthly usage on demand by scanning JSONL files for the given
+ * month. Returns null when no JSONL file matches (e.g. month is older than
+ * retention or has no traffic).
  */
 export function readMonthlyUsage(month: string): MonthlyUsage | null {
-  const usagePath = join(getUsageDir(), `${month}.json`);
-  if (!existsSync(usagePath)) return null;
-  try {
-    return JSON.parse(readFileSync(usagePath, "utf-8"));
-  } catch {
-    return null;
+  const logDir = getRequestLogDir();
+  if (!existsSync(logDir)) return null;
+
+  const files = readdirSync(logDir)
+    .filter((f) => f.endsWith(".jsonl") && f.startsWith(`${month}-`))
+    .sort();
+
+  if (files.length === 0) return null;
+
+  const usage: MonthlyUsage = {
+    month,
+    total_requests: 0,
+    totals: emptyCategoryTotals(),
+    by_model: {},
+    by_day: {},
+  };
+
+  for (const file of files) {
+    const day = file.replace(".jsonl", "");
+    const lines = readFileSync(join(logDir, file), "utf-8").split("\n");
+    for (const line of lines) {
+      if (!line) continue;
+      let entry: RequestLogEntry;
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const model = entry.translated_model ?? entry.model;
+
+      usage.total_requests++;
+      addEntryTo(usage.totals, entry);
+
+      if (!usage.by_model[model]) {
+        usage.by_model[model] = { requests: 0, ...emptyCategoryTotals() };
+      }
+      const m = usage.by_model[model];
+      m.requests++;
+      addEntryTo(m, entry);
+
+      if (!usage.by_day[day]) {
+        usage.by_day[day] = { requests: 0, ...emptyCategoryTotals() };
+      }
+      const d = usage.by_day[day];
+      d.requests++;
+      addEntryTo(d, entry);
+    }
   }
+
+  return usage;
 }
 
 /**
@@ -177,10 +179,11 @@ export function listLogDates(): string[] {
 
 /**
  * Clean up JSONL request logs older than retentionDays.
- * Monthly usage JSON files are kept permanently (small).
+ * Aggregates are recomputed on demand from JSONL, so anything older than the
+ * retention window will simply not appear in `usage` reports anymore.
  * Returns number of files deleted.
  */
-export function cleanupOldLogs(retentionDays = 30): number {
+export function cleanupOldLogs(retentionDays = 180): number {
   const logDir = getRequestLogDir();
   if (!existsSync(logDir)) return 0;
 
