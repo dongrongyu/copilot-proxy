@@ -12,7 +12,7 @@ const program = new Command();
 program
   .name("copilot-proxy")
   .description("GitHub Copilot Model API Proxy — expose Copilot as OpenAI/Anthropic-compatible endpoints")
-  .version("0.1.11", "-V, --version", "show version")
+  .version("0.1.12", "-V, --version", "show version")
   .helpOption("-h, --help", "show help");
 
 program
