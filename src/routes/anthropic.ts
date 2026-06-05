@@ -100,7 +100,10 @@ function adjustMaxTokensForThinking(payload: any): any {
  */
 function adjustThinkingForModel(payload: any, model: string): any {
   if (payload.thinking?.type !== "enabled") return payload;
-  if (!model.includes("4.7") && !model.includes("4-7")) return payload;
+  if (
+    !model.includes("4.7") && !model.includes("4-7") &&
+    !model.includes("4.8") && !model.includes("4-8")
+  ) return payload;
 
   const effort = getMaxEffortFromModelCatalog(model) ?? "medium";
 

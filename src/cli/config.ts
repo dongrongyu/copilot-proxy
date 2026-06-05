@@ -121,6 +121,39 @@ export function filterAndSortModels(modelIds: string[]): string[] {
     });
 }
 
+// Threshold for tagging a model as 1M-context in Claude Code config.
+// Claude Code reads the `[1m]` suffix to enable Anthropic's 1M-context beta
+// (`anthropic-beta: context-1m-2025-08-07`). That beta header is meaningless
+// for non-Anthropic vendors, so tagging Gemini / OpenAI / Experimental models
+// with `[1m]` would either be silently ignored or rejected upstream.
+const ONE_M_CONTEXT_THRESHOLD = 1_000_000;
+
+/**
+ * Build the model id Claude Code should see — appends `[1m]` only when:
+ *   1. The model is from Anthropic (the `[1m]` marker drives an
+ *      Anthropic-specific beta header), AND
+ *   2. The catalog reports a context window of 1M+ tokens.
+ *
+ * Falls back to `reverseModelName` (which tags by `-1m` / `-1m-internal`
+ * suffix) for any model not found in the catalog.
+ */
+export function claudeDisplayName(
+  copilotId: string,
+  catalog?: Array<{ id: string; vendor?: string; capabilities?: any }>,
+): string {
+  const entry = catalog?.find((m) => m.id === copilotId);
+  if (!entry) return reverseModelName(copilotId);
+
+  const isAnthropic = entry.vendor === "Anthropic";
+  const ctx = entry.capabilities?.limits?.max_context_window_tokens;
+  const has1M = typeof ctx === "number" && ctx >= ONE_M_CONTEXT_THRESHOLD;
+
+  if (isAnthropic && has1M) {
+    return copilotId.endsWith("[1m]") ? copilotId : `${copilotId}[1m]`;
+  }
+  return copilotId;
+}
+
 /**
  * Build the Claude Code settings env object.
  */
@@ -135,6 +168,7 @@ export function buildClaudeEnv(baseUrl: string, model: string): Record<string, s
     DISABLE_NON_ESSENTIAL_MODEL_CALLS: "1",
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1",
+    CLAUDE_CODE_ATTRIBUTION_HEADER: "0",
   };
 }
 
@@ -185,7 +219,8 @@ const AOAI_DEFAULT_API_VERSION = "2025-04-01-preview";
 
 // Reasoning efforts ordered strongest → weakest. Whatever the Copilot
 // `/models` endpoint advertises as supported, we pick the first one that
-// appears in this list.
+// appears in this list. Upstream also exposes `"max"` on newer Opus models,
+// but we deliberately cap at `xhigh` for now.
 const EFFORT_PRIORITY = ["xhigh", "high", "medium", "low", "minimal", "none"];
 
 /**
@@ -438,7 +473,7 @@ async function configClaude(baseUrl: string, outputPath?: string) {
   }
 
   for (let i = 0; i < claudeModels.length; i++) {
-    const display = reverseModelName(claudeModels[i]!);
+    const display = claudeDisplayName(claudeModels[i]!, modelList);
     console.log(`  ${i + 1}) ${display}`);
   }
 
@@ -455,9 +490,9 @@ async function configClaude(baseUrl: string, outputPath?: string) {
     selectedModel = claudeModels[0]!;
   }
 
-  console.log(`\nUsing model: ${reverseModelName(selectedModel)}`);
+  console.log(`\nUsing model: ${claudeDisplayName(selectedModel, modelList)}`);
 
-  const claudeModel = reverseModelName(selectedModel);
+  const claudeModel = claudeDisplayName(selectedModel, modelList);
   const env = buildClaudeEnv(baseUrl, claudeModel);
 
   for (const settingsPath of pathsToWrite) {

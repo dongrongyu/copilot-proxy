@@ -27,6 +27,9 @@ describe("Model Mapping", () => {
     test("claude-opus-4-6 -> claude-opus-4.6", () => {
       expect(translateModelName("claude-opus-4-6")).toBe("claude-opus-4.6");
     });
+    test("claude-opus-4-8 -> claude-opus-4.8", () => {
+      expect(translateModelName("claude-opus-4-8")).toBe("claude-opus-4.8");
+    });
     test("claude-opus-4-5 -> claude-opus-4.5", () => {
       expect(translateModelName("claude-opus-4-5")).toBe("claude-opus-4.5");
     });
@@ -38,6 +41,9 @@ describe("Model Mapping", () => {
   describe("built-in prefix mappings", () => {
     test("claude-opus-4-6-xxx -> claude-opus-4.6", () => {
       expect(translateModelName("claude-opus-4-6-20250514")).toBe("claude-opus-4.6");
+    });
+    test("claude-opus-4-8-xxx -> claude-opus-4.8", () => {
+      expect(translateModelName("claude-opus-4-8-20260601")).toBe("claude-opus-4.8");
     });
     test("claude-sonnet-4-xxx -> claude-sonnet-4", () => {
       expect(translateModelName("claude-sonnet-4-20250514")).toBe("claude-sonnet-4");

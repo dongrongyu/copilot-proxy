@@ -7,6 +7,7 @@ import {
   buildCodexAoaiToml,
   mergeCodexToml,
   pickMaxReasoningEffort,
+  claudeDisplayName,
 } from "../../../src/cli/config";
 
 describe("Config Utilities", () => {
@@ -56,6 +57,7 @@ describe("Config Utilities", () => {
       expect(env.DISABLE_NON_ESSENTIAL_MODEL_CALLS).toBe("1");
       expect(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe("1");
       expect(env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBe("1");
+      expect(env.CLAUDE_CODE_ATTRIBUTION_HEADER).toBe("0");
     });
 
     test("does not include ANTHROPIC_API_KEY", () => {
@@ -144,6 +146,11 @@ describe("Config Utilities", () => {
   });
 
   describe("pickMaxReasoningEffort", () => {
+    test("picks xhigh even when max is present (max is intentionally skipped)", () => {
+      expect(
+        pickMaxReasoningEffort(["low", "medium", "high", "xhigh", "max"]),
+      ).toBe("xhigh");
+    });
     test("picks xhigh when present", () => {
       expect(pickMaxReasoningEffort(["low", "medium", "high", "xhigh"])).toBe(
         "xhigh",
@@ -249,6 +256,46 @@ key = "value"
       expect(merged).not.toContain(`name = "Copilot Proxy"`);
       expect(merged).toContain(`env_key = "AZURE_OPENAI_API_KEY"`);
       expect(merged).toContain(`model_reasoning_effort = "xhigh"`);
+    });
+  });
+
+  describe("claudeDisplayName", () => {
+    const catalog = [
+      { id: "claude-opus-4.6", vendor: "Anthropic", capabilities: { limits: { max_context_window_tokens: 1000000 } } },
+      { id: "claude-opus-4.5", vendor: "Anthropic", capabilities: { limits: { max_context_window_tokens: 200000 } } },
+      { id: "claude-opus-4.6-1m", vendor: "Anthropic", capabilities: { limits: { max_context_window_tokens: 1000000 } } },
+      { id: "claude-opus-4.8", vendor: "Anthropic", capabilities: { limits: { max_context_window_tokens: 1000000 } } },
+      { id: "gemini-3.1-pro-preview", vendor: "Google", capabilities: { limits: { max_context_window_tokens: 1000000 } } },
+      { id: "gpt-5.5", vendor: "OpenAI", capabilities: { limits: { max_context_window_tokens: 1050000 } } },
+    ];
+
+    test("appends [1m] for Anthropic 1M models without -1m suffix", () => {
+      expect(claudeDisplayName("claude-opus-4.8", catalog)).toBe("claude-opus-4.8[1m]");
+      expect(claudeDisplayName("claude-opus-4.6", catalog)).toBe("claude-opus-4.6[1m]");
+    });
+
+    test("appends [1m] for Anthropic 1M models that already have -1m suffix", () => {
+      expect(claudeDisplayName("claude-opus-4.6-1m", catalog)).toBe("claude-opus-4.6-1m[1m]");
+    });
+
+    test("leaves Anthropic model untagged when context < 1M", () => {
+      expect(claudeDisplayName("claude-opus-4.5", catalog)).toBe("claude-opus-4.5");
+    });
+
+    test("never tags non-Anthropic vendors even if they advertise 1M context", () => {
+      expect(claudeDisplayName("gemini-3.1-pro-preview", catalog)).toBe("gemini-3.1-pro-preview");
+      expect(claudeDisplayName("gpt-5.5", catalog)).toBe("gpt-5.5");
+    });
+
+    test("falls back to reverseModelName for models not in catalog", () => {
+      expect(claudeDisplayName("claude-opus-4.7-1m-internal", catalog)).toBe(
+        "claude-opus-4.7-1m-internal[1m]",
+      );
+      expect(claudeDisplayName("claude-opus-4.7", catalog)).toBe("claude-opus-4.7");
+    });
+
+    test("does not double-tag if id already ends with [1m]", () => {
+      expect(claudeDisplayName("claude-opus-4.8[1m]", catalog)).toBe("claude-opus-4.8[1m]");
     });
   });
 });

@@ -7,6 +7,7 @@ const BUILTIN_EXACT: Record<string, string> = {
   haiku: "claude-haiku-4.5",
   "claude-opus-4-6": "claude-opus-4.6",
   "claude-opus-4-7": "claude-opus-4.7",
+  "claude-opus-4-8": "claude-opus-4.8",
   "claude-opus-4-5": "claude-opus-4.5",
   "claude-haiku-4-5": "claude-haiku-4.5",
 };
@@ -22,6 +23,7 @@ const BUILTIN_PREFIX: Record<string, string> = {
   "claude-opus-4-5-": "claude-opus-4.5",
   "claude-opus-4-6-": "claude-opus-4.6",
   "claude-opus-4-7-": "claude-opus-4.7",
+  "claude-opus-4-8-": "claude-opus-4.8",
 };
 
 /**
