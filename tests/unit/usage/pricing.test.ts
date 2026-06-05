@@ -5,21 +5,22 @@ describe("pricing", () => {
   describe("lookupPrice", () => {
     test("returns price for exact match (claude-opus-4.8)", () => {
       const p = lookupPrice("claude-opus-4.8");
-      expect(p?.input).toBe(15);
-      expect(p?.output).toBe(75);
+      expect(p?.input).toBe(5);
+      expect(p?.output).toBe(25);
     });
 
     test("strips [1m] suffix before lookup", () => {
-      expect(lookupPrice("claude-opus-4.8[1m]")?.input).toBe(15);
+      expect(lookupPrice("claude-opus-4.8[1m]")?.input).toBe(5);
     });
 
     test("falls back to base via prefix (claude-opus-4.7-xhigh -> 4.7)", () => {
-      expect(lookupPrice("claude-opus-4.7-xhigh")?.input).toBe(15);
-      expect(lookupPrice("claude-opus-4.7-1m-internal")?.input).toBe(15);
+      expect(lookupPrice("claude-opus-4.7-xhigh")?.input).toBe(5);
+      expect(lookupPrice("claude-opus-4.7-1m-internal")?.input).toBe(5);
     });
 
-    test("gpt-5 family prefix fallback", () => {
-      expect(lookupPrice("gpt-5-some-variant")?.output).toBe(10);
+    test("gpt-5.4 family prefix fallback", () => {
+      expect(lookupPrice("gpt-5.4-some-variant")?.output).toBe(15);
+      expect(lookupPrice("gpt-5.4-mini-2026-05")?.output).toBe(4.5);
     });
 
     test("returns null for unknown model", () => {
@@ -27,8 +28,8 @@ describe("pricing", () => {
     });
 
     test("normalizes dashed Claude-Code form (claude-opus-4-8 -> 4.8)", () => {
-      expect(lookupPrice("claude-opus-4-8")?.input).toBe(15);
-      expect(lookupPrice("claude-opus-4-8-1m")?.input).toBe(15);
+      expect(lookupPrice("claude-opus-4-8")?.input).toBe(5);
+      expect(lookupPrice("claude-opus-4-8-1m")?.input).toBe(5);
       expect(lookupPrice("claude-haiku-4-5")?.input).toBe(1);
     });
   });
@@ -48,37 +49,37 @@ describe("pricing", () => {
       expect(r.cost).toBe(0);
     });
 
-    test("1M input + 1M output at opus-4.8 list price = $90", () => {
+    test("1M input + 1M output at opus-4.8 list price = $30", () => {
       const r = estimateCost("claude-opus-4.8", {
         ...zero,
         input_tokens: 1_000_000,
         output_tokens: 1_000_000,
       });
       expect(r.priced).toBe(true);
-      expect(r.cost).toBeCloseTo(15 + 75, 5);
+      expect(r.cost).toBeCloseTo(5 + 25, 5);
     });
 
-    test("cache read priced lower than fresh input (opus 4.8: $1.50 vs $15)", () => {
+    test("cache read priced lower than fresh input (opus 4.8: $0.50 vs $5)", () => {
       const fresh = estimateCost("claude-opus-4.8", { ...zero, input_tokens: 1_000_000 });
       const cached = estimateCost("claude-opus-4.8", { ...zero, cache_read_input_tokens: 1_000_000 });
       expect(cached.cost).toBeLessThan(fresh.cost);
-      expect(cached.cost).toBeCloseTo(1.5, 5);
+      expect(cached.cost).toBeCloseTo(0.5, 5);
     });
 
     test("reasoning_tokens billed at output rate", () => {
-      const r = estimateCost("gpt-5", {
+      const r = estimateCost("gpt-5.4", {
         ...zero,
         reasoning_tokens: 1_000_000,
       });
-      expect(r.cost).toBeCloseTo(10, 5);
+      expect(r.cost).toBeCloseTo(15, 5);
     });
 
-    test("cache_creation billed at write rate (opus 4.8: $18.75/MTok)", () => {
+    test("cache_creation billed at write rate (opus 4.8: $6.25/MTok)", () => {
       const r = estimateCost("claude-opus-4.8", {
         ...zero,
         cache_creation_input_tokens: 1_000_000,
       });
-      expect(r.cost).toBeCloseTo(18.75, 5);
+      expect(r.cost).toBeCloseTo(6.25, 5);
     });
 
     test("small token counts produce small costs", () => {
@@ -87,8 +88,8 @@ describe("pricing", () => {
         input_tokens: 1000,
         output_tokens: 500,
       });
-      // 1000 * 15/1M + 500 * 75/1M = 0.015 + 0.0375 = 0.0525
-      expect(r.cost).toBeCloseTo(0.0525, 5);
+      // 1000 * 5/1M + 500 * 25/1M = 0.005 + 0.0125 = 0.0175
+      expect(r.cost).toBeCloseTo(0.0175, 5);
     });
   });
 

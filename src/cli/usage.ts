@@ -78,7 +78,7 @@ export async function usageCommand(opts: { month?: string }) {
 
   if (pricedModels > 0) {
     console.log(
-      `\nEstimated Cost: ${formatUsd(totalCost)} (vendor list-price; ` +
+      `\nTotal Cost: ${formatUsd(totalCost)} (GitHub Copilot token-based rate; ` +
         `${pricedModels} model(s) priced` +
         (unpricedModels > 0 ? `, ${unpricedModels} unpriced` : "") +
         `)`,
