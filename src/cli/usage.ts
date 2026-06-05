@@ -1,4 +1,5 @@
 import { readMonthlyUsage } from "../usage/logger";
+import { estimateCost, formatUsd } from "../usage/pricing";
 
 export async function usageCommand(opts: { month?: string }) {
   const month = opts.month ?? new Date().toISOString().slice(0, 7);
@@ -26,19 +27,32 @@ export async function usageCommand(opts: { month?: string }) {
   console.log(`Reasoning:      ${fmt(t.reasoning_tokens)}`);
 
   const models = Object.entries(usage.by_model);
+  let totalCost = 0;
+  let pricedModels = 0;
+  let unpricedModels = 0;
+
   if (models.length > 0) {
     console.log(`\nBy Model:`);
     console.log(
-      `  ${"".padEnd(28)}   reqs |    in |    cc |    cr |   out |     r`
+      `  ${"".padEnd(28)}   reqs |    in |    cc |    cr |   out |     r |     cost`
     );
     for (const [name, m] of models.sort((a, b) => b[1].requests - a[1].requests)) {
+      const est = estimateCost(name, m);
+      const costCell = est.priced ? formatUsd(est.cost) : "-";
+      if (est.priced) {
+        totalCost += est.cost;
+        pricedModels++;
+      } else {
+        unpricedModels++;
+      }
       console.log(
         `  ${name.padEnd(28)} ${String(m.requests).padStart(6)} | ` +
           `${fmtTokens(m.input_tokens).padStart(5)} | ` +
           `${fmtTokens(m.cache_creation_input_tokens).padStart(5)} | ` +
           `${fmtTokens(m.cache_read_input_tokens).padStart(5)} | ` +
           `${fmtTokens(m.output_tokens).padStart(5)} | ` +
-          `${fmtTokens(m.reasoning_tokens).padStart(5)}`
+          `${fmtTokens(m.reasoning_tokens).padStart(5)} | ` +
+          `${costCell.padStart(8)}`
       );
     }
   }
@@ -60,6 +74,15 @@ export async function usageCommand(opts: { month?: string }) {
           `${fmtTokens(d.reasoning_tokens).padStart(5)}`
       );
     }
+  }
+
+  if (pricedModels > 0) {
+    console.log(
+      `\nEstimated Cost: ${formatUsd(totalCost)} (vendor list-price; ` +
+        `${pricedModels} model(s) priced` +
+        (unpricedModels > 0 ? `, ${unpricedModels} unpriced` : "") +
+        `)`,
+    );
   }
 
   console.log("");
