@@ -1,7 +1,8 @@
 export interface WebSearchConfig {
   enabled: boolean;
-  provider: "tavily" | "searxng";
+  provider: "tavily" | "searxng" | "webiq";
   tavily_api_key: string;
+  webiq_api_key: string;
   searxng_url: string;
 }
 
@@ -20,7 +21,6 @@ export interface Config {
   max_connection_retries: number;
   model_mappings: ModelMappingsConfig;
   web_search: WebSearchConfig;
-  save_usage_to_file: boolean;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -39,7 +39,7 @@ export const DEFAULT_CONFIG: Config = {
     enabled: false,
     provider: "tavily",
     tavily_api_key: "",
+    webiq_api_key: "",
     searxng_url: "http://localhost:8888",
   },
-  save_usage_to_file: true,
 };

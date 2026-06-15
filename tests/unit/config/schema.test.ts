@@ -11,7 +11,6 @@ describe("Config Schema", () => {
     expect(DEFAULT_CONFIG.api_version).toBe("2025-04-01");
     expect(DEFAULT_CONFIG.copilot_version).toBe("0.26.7");
     expect(DEFAULT_CONFIG.max_connection_retries).toBe(3);
-    expect(DEFAULT_CONFIG.save_usage_to_file).toBe(true);
   });
 
   test("DEFAULT_CONFIG model_mappings starts empty", () => {
@@ -25,6 +24,7 @@ describe("Config Schema", () => {
     expect(DEFAULT_CONFIG.web_search.enabled).toBe(false);
     expect(DEFAULT_CONFIG.web_search.provider).toBe("tavily");
     expect(DEFAULT_CONFIG.web_search.tavily_api_key).toBe("");
+    expect(DEFAULT_CONFIG.web_search.webiq_api_key).toBe("");
     expect(DEFAULT_CONFIG.web_search.searxng_url).toBe("http://localhost:8888");
   });
 

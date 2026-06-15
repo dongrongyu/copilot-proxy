@@ -6,6 +6,7 @@ import { configCommand } from "./cli/config";
 import { usageCommand } from "./cli/usage";
 import { logsCommand } from "./cli/logs";
 import { serviceCommand } from "./cli/service";
+import { webSearchCommand } from "./cli/web-search";
 
 const program = new Command();
 
@@ -59,12 +60,22 @@ program
     serviceCommand(action);
   });
 
+program
+  .command("web-search [action] [arg2] [arg3]")
+  .description("configure web search fallback: web-search use <tavily|webiq> [key] | on | off | status")
+  .action((action, arg2, arg3) => webSearchCommand(action, arg2, arg3));
+
 program.addHelpText("after", `
 Examples:
   $ copilot-proxy login                 sign in with your GitHub account
   $ copilot-proxy start                 run the proxy (default http://127.0.0.1:8989)
   $ copilot-proxy start -p 8080         run on a custom port
   $ copilot-proxy config claude         wire Claude Code to this proxy
+  $ copilot-proxy web-search use webiq <key>   set WebIQ key, switch provider, enable
+  $ copilot-proxy web-search use tavily        switch to Tavily using its saved key
+  $ copilot-proxy web-search on                enable web search (current provider)
+  $ copilot-proxy web-search off               disable web search
+  $ copilot-proxy web-search status            show current web search settings
   $ copilot-proxy logs -e -l 50         tail the last 50 error requests
   $ copilot-proxy usage -m 2026-04      show token usage for April 2026
   $ copilot-proxy service install       install as a systemd user service

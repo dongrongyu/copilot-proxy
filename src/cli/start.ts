@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { loadConfig } from "../config/loader";
+import { loadConfig, ensureConfigFile, getConfigPath } from "../config/loader";
 import { initState } from "../auth/state";
 import { getGitHubToken } from "../auth/github-token";
 import { ensureCopilotToken, fetchModels } from "../auth/copilot-token";
@@ -7,6 +7,11 @@ import { createApp } from "../server";
 import { cleanupOldLogs } from "../usage/logger";
 
 export async function startServer(opts: { port?: string; host?: string }) {
+  // Write the default config on first run so users have a file to edit.
+  if (ensureConfigFile()) {
+    console.log(`[Config] Created default config at: ${getConfigPath()}`);
+  }
+
   const config = loadConfig();
   if (opts.port) config.port = parseInt(opts.port, 10);
   if (opts.host) config.address = opts.host;

@@ -109,12 +109,53 @@ async function searchWithSearxng(
   }
 }
 
+async function searchWithWebiq(
+  query: string,
+  apiKey: string
+): Promise<SearchResult[]> {
+  try {
+    const resp = await fetch("https://api.microsoft.ai/v3/search/web", {
+      method: "POST",
+      headers: {
+        "host": "api.microsoft.ai",
+        "x-apikey": apiKey,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        query,
+        maxResults: 5,
+        contentFormat: "text",
+        maxLength: 2000,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!resp.ok) {
+      console.error(`[WebSearch] WebIQ error: ${resp.status}`);
+      return [];
+    }
+    const data = (await resp.json()) as {
+      webResults?: { title: string; url: string; content: string }[];
+    };
+    return (data.webResults ?? []).map((r) => ({
+      title: r.title,
+      url: r.url,
+      content: r.content,
+    }));
+  } catch (err) {
+    console.error(`[WebSearch] WebIQ call failed: ${err}`);
+    return [];
+  }
+}
+
 async function doSearch(query: string): Promise<SearchResult[]> {
   const { config } = getState();
   const ws = config.web_search;
 
   if (ws.provider === "tavily") {
     return searchWithTavily(query, ws.tavily_api_key);
+  }
+  if (ws.provider === "webiq") {
+    return searchWithWebiq(query, ws.webiq_api_key);
   }
   return searchWithSearxng(query, ws.searxng_url);
 }

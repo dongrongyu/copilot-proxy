@@ -55,6 +55,44 @@ describe("Web Search - Provider Functions", () => {
     expect(result.results.length).toBe(1);
   });
 
+  test("WebIQ provider calls correct endpoint", async () => {
+    let calledUrl = "";
+    let calledBody: any = null;
+    let calledHeaders: any = null;
+    globalThis.fetch = (async (url: string, init?: any) => {
+      calledUrl = url;
+      calledHeaders = init?.headers ?? {};
+      calledBody = JSON.parse(init?.body ?? "{}");
+      return {
+        ok: true,
+        json: async () => ({
+          webResults: [
+            { title: "WebIQ Result", url: "https://wi.com", content: "wi content" },
+          ],
+          traceId: "abc123",
+        }),
+      };
+    }) as any;
+
+    getState().config.web_search.provider = "webiq";
+    getState().config.web_search.webiq_api_key = "webiq-key";
+
+    const { applyWebSearchFallback } = await import("../../../src/proxy/web-search");
+    const payload = {
+      messages: [{ role: "user", content: "webiq query" }],
+      tools: [{ type: "web_search", name: "web_search" }],
+      tool_choice: "auto",
+    };
+    const result = await applyWebSearchFallback(payload);
+
+    expect(calledUrl).toBe("https://api.microsoft.ai/v3/search/web");
+    expect(calledHeaders["x-apikey"]).toBe("webiq-key");
+    expect(calledBody.query).toBe("webiq query");
+    expect(result.payload.tools).toBeUndefined();
+    expect(result.results.length).toBe(1);
+    expect(result.results[0]!.title).toBe("WebIQ Result");
+  });
+
   test("SearXNG provider calls correct endpoint", async () => {
     let calledUrl = "";
     globalThis.fetch = (async (url: string) => {
