@@ -26,7 +26,7 @@ describeFn("Web Search Fallback", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4.6",
         max_tokens: 200,
         stream: false,
         messages: [
@@ -60,5 +60,8 @@ describeFn("Web Search Fallback", () => {
     expect(toolResult.tool_use_id).toBe(serverToolUse.id);
     expect(toolResult.content.length).toBeGreaterThan(0);
     expect(toolResult.content[0].type).toBe("web_search_result");
+    // Each result carries url + title + snippet (for non-Claude-Code clients).
+    expect(toolResult.content[0].url).toBeDefined();
+    expect(toolResult.content[0].title).toBeDefined();
   }, 60_000);
 });

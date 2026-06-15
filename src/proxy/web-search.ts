@@ -160,19 +160,31 @@ async function doSearch(query: string): Promise<SearchResult[]> {
   return searchWithSearxng(query, ws.searxng_url);
 }
 
+/**
+ * Render search results as a Markdown document for the injected tool_result.
+ * A top-level heading announces the block, each result is a numbered `##`
+ * section with explicit `**Title:**` / `**URL:**` labels, and the page body
+ * goes under a `**Snippet:**` label. Markdown reads cleanly and Anthropic
+ * models parse it well. The snippet (arbitrary page text) is placed last in
+ * each section so any stray `URL:` / `##` inside it can't be mistaken for the
+ * next field — there are no fields after it.
+ */
 export function formatSearchResults(query: string, results: SearchResult[]): string {
   if (results.length === 0) {
-    return `[Web Search Results]\nNo results found for "${query}".`;
+    return `# Web Search Results for "${query}"\n\nNo results found.`;
   }
-  const lines = [`[Web Search Results]`, `Search results for "${query}":`, ""];
+  const lines = [`# Web Search Results for "${query}"`, ""];
   for (let i = 0; i < results.length; i++) {
     const r = results[i]!;
-    lines.push(`${i + 1}. ${r.title}`);
-    if (r.url) lines.push(`   URL: ${r.url}`);
-    if (r.content) lines.push(`   ${r.content}`);
+    lines.push(`## ${i + 1}. ${r.title}`);
+    if (r.url) lines.push(`**URL:** ${r.url}`);
+    if (r.content) {
+      lines.push(`**Snippet:**`);
+      lines.push(r.content);
+    }
     lines.push("");
   }
-  return lines.join("\n");
+  return lines.join("\n").trimEnd() + "\n";
 }
 
 /**
@@ -272,6 +284,13 @@ export async function applyWebSearchFallback(payload: any): Promise<WebSearchFal
 /**
  * Build synthetic server_tool_use + web_search_tool_result content blocks
  * to prepend to the response, so clients see search results.
+ *
+ * Each result carries `url`, `title`, and `snippet` (the page body). Note that
+ * Claude Code's own client reads only `title` + `url`
+ * (`content.map(w => ({title, url}))`) and ignores `snippet`; the model gets
+ * the body via the injected tool_result text (see formatSearchResults), not
+ * these blocks. `snippet` is still included for other clients/frontends that
+ * may render it. We cannot supply Anthropic's server-signed `encrypted_content`.
  */
 export function buildWebSearchResponseBlocks(query: string, results: SearchResult[]): any[] {
   const toolUseId = `srvtoolu_web_search_${crypto.randomUUID().slice(0, 8)}`;

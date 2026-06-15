@@ -96,17 +96,31 @@ describe("Web Search Utilities", () => {
   });
 
   describe("formatSearchResults", () => {
-    test("formats results", () => {
+    test("formats results as Markdown", () => {
       const results = [
         { title: "Result 1", url: "https://example.com/1", content: "Desc 1" },
         { title: "Result 2", url: "https://example.com/2", content: "Desc 2" },
       ];
       const formatted = formatSearchResults("test query", results);
-      expect(formatted).toContain("[Web Search Results]");
-      expect(formatted).toContain("test query");
-      expect(formatted).toContain("1. Result 1");
-      expect(formatted).toContain("URL: https://example.com/1");
-      expect(formatted).toContain("2. Result 2");
+      expect(formatted).toContain('# Web Search Results for "test query"');
+      expect(formatted).toContain("## 1. Result 1");
+      expect(formatted).toContain("**URL:** https://example.com/1");
+      expect(formatted).toContain("**Snippet:**");
+      expect(formatted).toContain("Desc 1");
+      expect(formatted).toContain("## 2. Result 2");
+    });
+
+    test("snippet is the last field in a section", () => {
+      const results = [
+        { title: "T", url: "https://x.com", content: "body with URL: not-a-field and ## not-a-heading" },
+        { title: "T2", url: "https://y.com", content: "second" },
+      ];
+      const formatted = formatSearchResults("q", results);
+      // The next section heading must come from the real result, not the snippet text.
+      const idxSnippetUrl = formatted.indexOf("URL: not-a-field");
+      const idxSecond = formatted.indexOf("## 2. T2");
+      expect(idxSnippetUrl).toBeGreaterThan(-1);
+      expect(idxSecond).toBeGreaterThan(idxSnippetUrl);
     });
 
     test("handles empty results", () => {
@@ -118,7 +132,9 @@ describe("Web Search Utilities", () => {
     test("handles missing url/content", () => {
       const results = [{ title: "Only Title", url: "", content: "" }];
       const formatted = formatSearchResults("q", results);
-      expect(formatted).toContain("1. Only Title");
+      expect(formatted).toContain("## 1. Only Title");
+      expect(formatted).not.toContain("**URL:**");
+      expect(formatted).not.toContain("**Snippet:**");
     });
   });
 
