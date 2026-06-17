@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, appendFileSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { getConfigDir } from "../config/loader";
+import { estimateCost } from "./pricing";
 
 export type Provider = "anthropic" | "openai" | "gemini";
 
@@ -32,6 +33,13 @@ export interface RequestLogEntry {
   cache_read_input_tokens: number;
   output_tokens: number;
   reasoning_tokens: number;
+  /**
+   * Reasoning effort actually sent upstream (e.g. "max", "xhigh", "high").
+   * Empty string when the request did not carry adaptive thinking (non-thinking
+   * requests, non-Anthropic providers, or models without a reasoning_effort
+   * capability).
+   */
+  effort: string;
   duration_ms: number;
   status_code: number;
   error: string | null;
@@ -50,7 +58,10 @@ interface MonthlyUsage {
   total_requests: number;
   totals: CategoryTotals;
   by_model: Record<string, CategoryTotals & { requests: number }>;
-  by_day: Record<string, CategoryTotals & { requests: number }>;
+  // by_day carries a `cost` accumulated per-entry (sum of priced per-model
+  // estimates) so the portal's daily cost line reflects real spend rather than
+  // pricing a date string (which never matches a model).
+  by_day: Record<string, CategoryTotals & { requests: number; cost: number }>;
 }
 
 function getRequestLogDir(): string {
@@ -154,11 +165,20 @@ export function readMonthlyUsage(month: string): MonthlyUsage | null {
       addEntryTo(m, entry);
 
       if (!usage.by_day[day]) {
-        usage.by_day[day] = { requests: 0, ...emptyCategoryTotals() };
+        usage.by_day[day] = { requests: 0, cost: 0, ...emptyCategoryTotals() };
       }
       const d = usage.by_day[day];
       d.requests++;
       addEntryTo(d, entry);
+      // Price a coerced bundle (legacy JSONL entries may lack cache_*/reasoning
+      // fields; estimateCost on undefined would yield NaN).
+      d.cost += estimateCost(model, {
+        input_tokens: entry.input_tokens ?? 0,
+        cache_creation_input_tokens: entry.cache_creation_input_tokens ?? 0,
+        cache_read_input_tokens: entry.cache_read_input_tokens ?? 0,
+        output_tokens: entry.output_tokens ?? 0,
+        reasoning_tokens: entry.reasoning_tokens ?? 0,
+      }).cost;
     }
   }
 

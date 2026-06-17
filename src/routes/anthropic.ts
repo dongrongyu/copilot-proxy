@@ -88,24 +88,18 @@ function adjustMaxTokensForThinking(payload: any): any {
 }
 
 /**
- * Convert thinking.type "enabled" to "adaptive" for models that require it (e.g. opus-4.7+).
- * These models use thinking.type: "adaptive" + output_config.effort instead.
+ * Convert thinking.type "enabled" to "adaptive" and attach the configured
+ * reasoning effort, for any model that advertises a `reasoning_effort`
+ * capability (claude-opus-4.6/4.7/4.8, claude-sonnet-4.6, …). These models use
+ * thinking.type: "adaptive" + output_config.effort instead of budget_tokens.
  *
- * Effort is taken from the model's `capabilities.supports.reasoning_effort`
- * advertised by the Copilot `/models` endpoint — we always send the strongest
- * value the server will accept. Plain `claude-opus-4.7` is pinned to medium
- * server-side; `-xhigh` siblings advertise xhigh; the 1m-internal variant
- * advertises xhigh natively. Falls back to "medium" only when metadata is
- * missing.
+ * The effort comes from `config.effort` (default "high"), clamped to the
+ * nearest value the model actually supports — see resolveEffort. Models with no
+ * reasoning_effort capability are left untouched.
  */
 function adjustThinkingForModel(payload: any, model: string): any {
-  if (payload.thinking?.type !== "enabled") return payload;
-  if (
-    !model.includes("4.7") && !model.includes("4-7") &&
-    !model.includes("4.8") && !model.includes("4-8")
-  ) return payload;
-
-  const effort = getMaxEffortFromModelCatalog(model) ?? "medium";
+  const effort = resolveEffort(payload, model);
+  if (!effort) return payload;
 
   const result = { ...payload };
   result.thinking = { type: "adaptive" };
@@ -113,26 +107,83 @@ function adjustThinkingForModel(payload: any, model: string): any {
   return result;
 }
 
+// Reasoning efforts ordered weakest → strongest. Used to find the nearest
+// supported effort when the configured target isn't in a model's ladder.
+const EFFORT_LADDER = ["low", "medium", "high", "xhigh", "max"];
+
 /**
- * Look up the model's strongest supported reasoning effort from the cached
- * Copilot `/models` catalog. Returns null when the model is unknown or has
- * no reasoning_effort capability.
+ * Snap a target reasoning effort to the nearest value a model actually supports.
+ *
+ * Pure function (no I/O) so it can be unit-tested directly. Given the target and
+ * the model's supported-efforts ladder, returns:
+ *   - the target itself if supported; else
+ *   - the NEAREST stronger supported effort (searching "up"); else
+ *   - the nearest weaker one (searching "down"); else
+ *   - "" when `supported` is empty.
+ * For an unknown target (not on the canonical ladder) it returns the strongest
+ * supported effort, so a typo in config still yields a sensible value.
+ *
+ * Example: clampEffortToSupported("xhigh", ["low","medium","high","max"]) → "max".
  */
-function getMaxEffortFromModelCatalog(model: string): string | null {
+export function clampEffortToSupported(target: string, supported: string[]): string {
+  if (!supported || supported.length === 0) return "";
+  if (supported.includes(target)) return target;
+
+  const targetIdx = EFFORT_LADDER.indexOf(target);
+  if (targetIdx === -1) {
+    for (let i = EFFORT_LADDER.length - 1; i >= 0; i--) {
+      if (supported.includes(EFFORT_LADDER[i]!)) return EFFORT_LADDER[i]!;
+    }
+    return "";
+  }
+
+  // Prefer the nearest STRONGER effort (up), then fall back to weaker (down).
+  for (let i = targetIdx + 1; i < EFFORT_LADDER.length; i++) {
+    if (supported.includes(EFFORT_LADDER[i]!)) return EFFORT_LADDER[i]!;
+  }
+  for (let i = targetIdx - 1; i >= 0; i--) {
+    if (supported.includes(EFFORT_LADDER[i]!)) return EFFORT_LADDER[i]!;
+  }
+  return "";
+}
+
+/**
+ * Resolve the reasoning effort to send (and log) for a (payload, model) pair.
+ *
+ * Returns "" — meaning "inject nothing" — when the request carries no thinking
+ * (type must be enabled/adaptive) or the model advertises no reasoning_effort
+ * capability. Otherwise it takes the globally configured target effort
+ * (config.effort, default "high") and clamps it to the nearest value the model
+ * supports via clampEffortToSupported.
+ *
+ * This is the single source of truth: both the wire value (adjustThinkingForModel)
+ * and the logged value go through here, so they can never diverge.
+ */
+/**
+ * The model's supported reasoning efforts, as advertised by the Copilot
+ * `/models` catalog. Empty array when the model has no such capability.
+ */
+function supportedEffortsFor(model: string): string[] {
   const state = getState();
   const entry = state.models?.data?.find((m: any) => m.id === model);
   const supported: string[] | undefined = (entry as any)?.capabilities?.supports?.reasoning_effort;
-  if (!supported || supported.length === 0) return null;
-  const priority = ["xhigh", "high", "medium", "low", "minimal", "none"];
-  for (const e of priority) {
-    if (supported.includes(e)) return e;
-  }
-  return null;
+  return supported ?? [];
+}
+
+function resolveEffort(payload: any, model: string): string {
+  const tType = payload?.thinking?.type;
+  if (tType !== "enabled" && tType !== "adaptive") return "";
+
+  const supported = supportedEffortsFor(model);
+  if (supported.length === 0) return "";
+
+  const target = (getState().config.effort || "high").toLowerCase();
+  return clampEffortToSupported(target, supported);
 }
 
 function makeLogEntry(
   requestId: string, originalModel: string, translatedModel: string,
-  endpoint: string, startTime: number
+  endpoint: string, startTime: number, effort = ""
 ): Partial<RequestLogEntry> {
   const useDirect = supportsDirectAnthropicApi(translatedModel);
   return {
@@ -145,6 +196,7 @@ function makeLogEntry(
     input_tokens: 0, output_tokens: 0,
     cache_creation_input_tokens: 0, cache_read_input_tokens: 0,
     reasoning_tokens: 0,
+    effort,
     duration_ms: 0, status_code: 200, error: null,
   };
 }
@@ -186,6 +238,7 @@ async function handleDirectAnthropic(
   let currentPayload = payload;
   const maxRetries = 3;
   let webSearchMeta: WebSearchFallbackResult | null = null;
+  const effort = resolveEffort(payload, translatedModel);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     let filtered = filterPayloadForCopilot(currentPayload);
@@ -201,7 +254,7 @@ async function handleDirectAnthropic(
       );
 
       if (isStreaming && resp.ok && resp.body) {
-        return streamDirectAnthropic(c, resp, requestId, startTime, originalModel, translatedModel, webSearchMeta);
+        return streamDirectAnthropic(c, resp, requestId, startTime, originalModel, translatedModel, webSearchMeta, effort);
       }
 
       if (resp.ok) {
@@ -212,7 +265,7 @@ async function handleDirectAnthropic(
         }
         const usage = body.usage ?? {};
         logRequest({
-          ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime),
+          ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime, effort),
           input_tokens: usage.input_tokens ?? 0,
           output_tokens: usage.output_tokens ?? 0,
           cache_creation_input_tokens: usage.cache_creation_input_tokens ?? 0,
@@ -249,7 +302,7 @@ async function handleDirectAnthropic(
       }
 
       logRequest({
-        ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime),
+        ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime, effort),
         duration_ms: Date.now() - startTime,
         status_code: resp.status,
         error: errorText.slice(0, 500),
@@ -258,7 +311,7 @@ async function handleDirectAnthropic(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logRequest({
-        ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime),
+        ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime, effort),
         duration_ms: Date.now() - startTime,
         status_code: 504,
         error: msg,
@@ -273,7 +326,8 @@ async function handleDirectAnthropic(
 function streamDirectAnthropic(
   c: any, resp: Response, requestId: string, startTime: number,
   originalModel: string, translatedModel: string,
-  webSearchMeta: WebSearchFallbackResult | null = null
+  webSearchMeta: WebSearchFallbackResult | null = null,
+  effort = ""
 ) {
   let totalInput = 0, totalOutput = 0, cachCreate = 0, cachRead = 0;
 
@@ -345,7 +399,7 @@ function streamDirectAnthropic(
       console.error(`[Stream] Error: ${err}`);
     } finally {
       logRequest({
-        ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime),
+        ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime, effort),
         input_tokens: totalInput, output_tokens: totalOutput,
         cache_creation_input_tokens: cachCreate, cache_read_input_tokens: cachRead,
         duration_ms: Date.now() - startTime,

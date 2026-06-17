@@ -7,13 +7,14 @@ import { usageCommand } from "./cli/usage";
 import { logsCommand } from "./cli/logs";
 import { serviceCommand } from "./cli/service";
 import { webSearchCommand } from "./cli/web-search";
+import { effortCommand } from "./cli/effort";
 
 const program = new Command();
 
 program
   .name("copilot-proxy")
   .description("GitHub Copilot Model API Proxy — expose Copilot as OpenAI/Anthropic-compatible endpoints")
-  .version("0.1.14", "-V, --version", "show version")
+  .version("0.1.22", "-V, --version", "show version")
   .helpOption("-h, --help", "show help");
 
 program
@@ -65,6 +66,11 @@ program
   .description("configure web search fallback: web-search use <tavily|webiq> [key] | on | off | status")
   .action((action, arg2, arg3) => webSearchCommand(action, arg2, arg3));
 
+program
+  .command("effort [value]")
+  .description("set reasoning effort for thinking requests: low | medium | high | xhigh | max | status")
+  .action((value) => effortCommand(value));
+
 program.addHelpText("after", `
 Examples:
   $ copilot-proxy login                 sign in with your GitHub account
@@ -76,6 +82,8 @@ Examples:
   $ copilot-proxy web-search on                enable web search (current provider)
   $ copilot-proxy web-search off               disable web search
   $ copilot-proxy web-search status            show current web search settings
+  $ copilot-proxy effort max                   set reasoning effort to max
+  $ copilot-proxy effort status                show current reasoning effort
   $ copilot-proxy logs -e -l 50         tail the last 50 error requests
   $ copilot-proxy usage -m 2026-04      show token usage for April 2026
   $ copilot-proxy service install       install as a systemd user service

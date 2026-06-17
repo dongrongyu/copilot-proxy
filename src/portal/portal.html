@@ -1,0 +1,1211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Copilot Proxy · Config Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0e14;
+    --bg-elev: #12161f;
+    --bg-elev2: #1a1f2b;
+    --border: #2a3140;
+    --border-soft: #1e2430;
+    --fg: #e8edf4;
+    --fg-muted: #9aa6b6;
+    --fg-dim: #66707e;
+    --accent: #4d9bff;
+    --accent-hover: #6aabff;
+    --accent-soft: #4d9bff26;
+    --green: #46c266;
+    --green-soft: #46c26622;
+    --red: #f76d63;
+    --red-soft: #f76d6322;
+    --amber: #e0a83c;
+    --amber-soft: #e0a83c1f;
+    --purple: #b389ff;
+    --brand-grad: linear-gradient(140deg, #4d9bff 0%, #2563eb 100%);
+    --card-shadow: none;
+    --menu-shadow: 0 10px 30px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.34);
+    --code-bg: #0b0e14;
+    /* chart palette — distinct hues per token category + warm cost line */
+    --c-input:   #1f6feb;
+    --c-cachecr: #39c5cf;
+    --c-cache:   #7e8ca6;
+    --c-output:  #3fb950;
+    --c-reason:  #db61a2;
+    --c-cost:    #f0883e;
+    --c-grid:   #1e2430;
+    --radius: 11px;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  [data-theme="light"] {
+    --bg: #f3f5f8;
+    --bg-elev: #ffffff;
+    --bg-elev2: #eef1f5;
+    --border: #d4dae1;
+    --border-soft: #e6eaef;
+    --fg: #1a1f28;
+    --fg-muted: #5a6573;
+    --fg-dim: #8b95a3;
+    --accent: #1f6feb;
+    --accent-hover: #195ec7;
+    --accent-soft: #1f6feb1a;
+    --green: #1a7f37;
+    --green-soft: #1a7f3714;
+    --red: #cf222e;
+    --red-soft: #cf222e12;
+    --amber: #9a6700;
+    --amber-soft: #9a670012;
+    --purple: #8250df;
+    --brand-grad: linear-gradient(140deg, #4d9bff 0%, #1f6feb 100%);
+    --card-shadow: 0 1px 2px rgba(27,31,40,.06), 0 3px 8px rgba(27,31,40,.04);
+    --menu-shadow: 0 12px 32px rgba(27,31,40,.14), 0 2px 8px rgba(27,31,40,.08);
+    --code-bg: #f3f5f8;
+    --c-input:   #0969da;
+    --c-cachecr: #1b7c83;
+    --c-cache:   #6b7585;
+    --c-output:  #1a7f37;
+    --c-reason:  #bf3989;
+    --c-cost:    #bc4c00;
+    --c-grid:   #e6eaef;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    transition: background .2s ease, color .2s ease;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .layout { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    background: var(--bg-elev);
+    border-right: 1px solid var(--border-soft);
+    padding: 18px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 6px 8px 18px; }
+  .brand .logo {
+    width: 30px; height: 30px; border-radius: 8px;
+    background: var(--brand-grad);
+    display: grid; place-items: center; font-weight: 800; color: #fff; font-size: 14px;
+    letter-spacing: -.5px;
+  }
+  .brand .name { font-weight: 650; letter-spacing: .2px; }
+  .brand .ver { font-size: 11px; color: var(--fg-dim); font-family: var(--mono); }
+
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 8px;
+    color: var(--fg-muted); cursor: pointer; user-select: none;
+    font-weight: 500;
+    position: relative;
+    transition: background .12s ease, color .12s ease;
+  }
+  .nav-item:hover { background: var(--bg-elev2); color: var(--fg); }
+  .nav-item.active { background: var(--accent-soft); color: var(--fg); font-weight: 600; }
+  .nav-item.active::before {
+    content: ""; position: absolute; left: -14px; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 17px; border-radius: 0 3px 3px 0; background: var(--accent);
+  }
+  .nav-item .ic { width: 18px; text-align: center; opacity: .9; }
+  .nav-sep { height: 1px; background: var(--border-soft); margin: 10px 6px; }
+
+  .sidebar-foot { margin-top: auto; padding: 10px 8px 0; font-size: 11px; color: var(--fg-dim); }
+  .theme-toggle {
+    width: 100%; display: flex; align-items: center; gap: 8px; justify-content: center;
+    background: var(--bg-elev2); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--fg-muted); padding: 7px 10px; font-size: 12px; font-weight: 500; cursor: pointer;
+  }
+  .theme-toggle:hover { color: var(--fg); border-color: var(--fg-dim); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot.ok { background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+  /* ---------- Main ---------- */
+  .main { padding: 28px 34px 60px; max-width: 1080px; }
+  .page { display: none; }
+  .page.active { display: block; animation: fade .18s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  .page-head { margin-bottom: 22px; }
+  .page-head h1 { font-size: 23px; margin: 0 0 4px; font-weight: 700; letter-spacing: -.4px; }
+  .page-head p { margin: 0; color: var(--fg-muted); }
+
+  /* cards / grid */
+  .grid { display: grid; gap: 14px; }
+  .grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
+  .grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+  .grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+
+  .card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    box-shadow: var(--card-shadow);
+  }
+  .card.pad-lg { padding: 20px 22px; }
+  .card h3 { margin: 0 0 14px; font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--fg-muted); font-weight: 600; }
+
+  .stat .label { font-size: 12px; color: var(--fg-muted); margin-bottom: 6px; }
+  .stat .value { font-size: 27px; font-weight: 700; letter-spacing: -.8px; }
+  .stat .value.mono { font-family: var(--mono); font-size: 20px; letter-spacing: -.5px; font-weight: 600; }
+  .stat .sub { font-size: 12px; color: var(--fg-dim); margin-top: 4px; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+    font-family: var(--mono); letter-spacing: .3px;
+  }
+  .badge.green { background: var(--green-soft); color: var(--green); }
+  .badge.red   { background: var(--red-soft); color: var(--red); }
+  .badge.amber { background: var(--amber-soft); color: var(--amber); }
+  .badge.blue  { background: var(--accent-soft); color: var(--accent); }
+  .badge.dim   { background: var(--bg-elev2); color: var(--fg-muted); }
+
+  /* tables */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border-soft); }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--fg-dim); font-weight: 600; }
+  td.num, th.num { text-align: right; font-family: var(--mono); }
+  tbody tr:hover { background: var(--bg-elev2); }
+  tbody tr:last-child td { border-bottom: none; }
+  .mono { font-family: var(--mono); }
+  .muted { color: var(--fg-muted); }
+  .dim { color: var(--fg-dim); }
+
+  /* toolbar */
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .toolbar .spacer { flex: 1; }
+  select, input[type=text], input[type=password] {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 7px 11px;
+    font-family: var(--sans);
+    font-size: 13px;
+    outline: none;
+    transition: border-color .12s ease, box-shadow .12s ease, background-color .12s ease;
+  }
+  input.mono { font-family: var(--mono); }
+  select:focus, input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  /* refined select: strip native chrome, draw our own chevron, give it room */
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    cursor: pointer;
+    padding-right: 34px;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.75 4.5 6 7.75 9.25 4.5' fill='none' stroke='%239aa6b6' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 12px 12px;
+  }
+  [data-theme="light"] select {
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.75 4.5 6 7.75 9.25 4.5' fill='none' stroke='%235a6573' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+  select:hover { border-color: var(--fg-dim); background-color: var(--bg-elev2); }
+  select:focus { background-color: var(--bg-elev); }
+  select:focus {
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.75 4.5 6 7.75 9.25 4.5' fill='none' stroke='%234d9bff' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+  select option { background: var(--bg-elev); color: var(--fg); font-family: var(--sans); }
+  /* model picker lists technical ids — mono reads cleaner, taller hit area */
+  #setupModel { font-family: var(--mono); font-size: 12.5px; min-height: 38px; letter-spacing: -.2px; }
+  #setupModel option { font-family: var(--mono); }
+
+  /* ---------- custom select (themed option list) ---------- */
+  /* Native <option> popups can't be themed, so the model picker is rebuilt as a
+     div-based listbox that inherits the page's tokens. */
+  .csel { position: relative; width: 100%; }
+  .csel-btn {
+    width: 100%; display: flex; align-items: center; gap: 8px;
+    background: var(--bg-elev); border: 1px solid var(--border); color: var(--fg);
+    border-radius: 8px; padding: 8px 12px; min-height: 38px; cursor: pointer;
+    font-family: var(--mono); font-size: 12.5px; letter-spacing: -.2px; text-align: left;
+    transition: border-color .12s ease, box-shadow .12s ease, background-color .12s ease;
+  }
+  .csel-btn:hover { border-color: var(--fg-dim); background: var(--bg-elev2); }
+  .csel.open .csel-btn { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: var(--bg-elev); }
+  .csel-btn .csel-val { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .csel-btn .csel-val.placeholder { color: var(--fg-dim); }
+  .csel-btn .csel-chev { flex: none; width: 12px; height: 12px; color: var(--fg-muted); transition: transform .16s ease, color .12s ease; }
+  .csel.open .csel-btn .csel-chev { transform: rotate(180deg); color: var(--accent); }
+
+  .csel-menu {
+    position: absolute; z-index: 40; top: calc(100% + 5px); left: 0; right: 0;
+    background: var(--bg-elev); border: 1px solid var(--border); border-radius: 9px;
+    box-shadow: var(--menu-shadow); padding: 5px; max-height: 280px; overflow-y: auto;
+    opacity: 0; transform: translateY(-4px) scale(.99); transform-origin: top;
+    pointer-events: none; transition: opacity .13s ease, transform .13s ease;
+  }
+  .csel.open .csel-menu { opacity: 1; transform: none; pointer-events: auto; }
+  .csel-opt {
+    display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px;
+    cursor: pointer; font-family: var(--mono); font-size: 12.5px; color: var(--fg-muted);
+    letter-spacing: -.2px; white-space: nowrap;
+  }
+  .csel-opt:hover, .csel-opt.active { background: var(--bg-elev2); color: var(--fg); }
+  .csel-opt.sel { color: var(--fg); font-weight: 600; }
+  .csel-opt .csel-tick { flex: none; width: 14px; text-align: center; color: var(--accent); opacity: 0; }
+  .csel-opt.sel .csel-tick { opacity: 1; }
+  /* thin scrollbar so the menu feels native to the app, not the OS */
+  .csel-menu::-webkit-scrollbar { width: 8px; }
+  .csel-menu::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; border: 2px solid var(--bg-elev); }
+  .csel-menu::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
+  label.field { display: block; font-size: 12px; color: var(--fg-muted); margin-bottom: 6px; font-weight: 500; }
+
+  button {
+    background: var(--bg-elev2); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 14px; font-size: 13px; font-weight: 550; cursor: pointer;
+    font-family: var(--sans);
+  }
+  button:hover { border-color: var(--fg-dim); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  button.ghost { background: transparent; }
+  button.danger { color: var(--red); border-color: var(--red-soft); }
+  button.danger:hover { background: var(--red-soft); }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { border: none; border-radius: 0; background: var(--bg-elev); padding: 7px 13px; }
+  .seg button:not(.on):hover { background: var(--bg-elev2); }
+  .seg button.on { background: var(--accent); color: #fff; }
+
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font-size: 11px; padding: 2px 8px; border-radius: 6px; background: var(--bg-elev2); color: var(--fg-muted); font-family: var(--mono); }
+  .chip.cap { background: var(--accent-soft); color: var(--accent); }
+
+  .status-pill { font-family: var(--mono); font-weight: 600; }
+  .s2 { color: var(--green); } .s4 { color: var(--amber); } .s5 { color: var(--red); }
+
+  /* web search toggle row */
+  .switch { position: relative; width: 42px; height: 24px; }
+  .switch input { display: none; }
+  .switch .track { position: absolute; inset: 0; background: var(--bg-elev2); border: 1px solid var(--border); border-radius: 999px; transition: .15s; }
+  .switch .knob { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--fg-dim); transition: .15s; }
+  .switch input:checked + .track { background: var(--green-soft); border-color: var(--green); }
+  .switch input:checked + .track .knob { left: 21px; background: var(--green); }
+
+  .provider-row { display: flex; align-items: center; gap: 14px; padding: 14px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--code-bg); margin-bottom: 10px; cursor: pointer; transition: border-color .12s ease, background .12s ease; }
+  .provider-row:hover { border-color: var(--border); }
+  .provider-row.sel { border-color: var(--accent); background: var(--accent-soft); }
+  .provider-row .pmeta { flex: 1; }
+  .provider-row .pname { font-weight: 600; }
+  .provider-row .pdesc { font-size: 12px; color: var(--fg-muted); }
+  .radio { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--border); }
+  .provider-row.sel .radio { border-color: var(--accent); background: radial-gradient(circle at center, var(--accent) 0 5px, transparent 6px); }
+
+  .codeblock {
+    background: var(--code-bg); border: 1px solid var(--border-soft); border-radius: 8px;
+    padding: 14px 16px; font-family: var(--mono); font-size: 12.5px; color: var(--fg-muted);
+    white-space: pre; overflow-x: auto; line-height: 1.65;
+  }
+  .help { font-size: 12px; color: var(--fg-dim); margin-top: 7px; }
+  .bar { height: 6px; border-radius: 3px; background: var(--bg-elev2); overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--purple)); }
+  .chart-legend { display: flex; gap: 15px; flex-wrap: wrap; font-size: 11px; color: var(--fg-muted); }
+  .chart-legend .lg { display: inline-flex; align-items: center; gap: 6px; }
+  .chart-legend .sw { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+  .chart-legend .ln { width: 16px; height: 0; border-top: 2px solid var(--c-cost); display: inline-block; }
+  .chart-wrap { margin-top: 6px; }
+  .chart-wrap svg text { font-family: var(--mono); }
+  .chart-wrap rect:hover { opacity: .82; }
+  .toast { position: fixed; bottom: 22px; right: 22px; background: var(--bg-elev); border: 1px solid var(--border); border-left: 3px solid var(--green); color: var(--fg); padding: 11px 16px 11px 14px; border-radius: 9px; font-size: 13px; font-weight: 500; box-shadow: 0 8px 24px rgba(0,0,0,.28); opacity: 0; transform: translateY(8px); transition: .2s; pointer-events: none; }
+  .toast.show { opacity: 1; transform: none; }
+  .kv { display: grid; grid-template-columns: 150px 1fr; gap: 8px 14px; }
+  .kv .k { color: var(--fg-muted); }
+  .kv .v { font-family: var(--mono); }
+</style>
+</head>
+<body>
+<div class="layout">
+  <!-- ============ Sidebar ============ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">CP</div>
+      <div>
+        <div class="name">Copilot Proxy</div>
+        <div class="ver">v0.1.22</div>
+      </div>
+    </div>
+
+    <div class="nav-item active" data-page="dashboard"><span class="ic">▦</span> Dashboard</div>
+    <div class="nav-item" data-page="models"><span class="ic">◈</span> Models</div>
+    <div class="nav-item" data-page="usage"><span class="ic">▭</span> Usage</div>
+    <div class="nav-item" data-page="logs"><span class="ic">≣</span> Request Logs</div>
+    <div class="nav-sep"></div>
+    <div class="nav-item" data-page="websearch"><span class="ic">⌕</span> Web Search</div>
+    <div class="nav-item" data-page="effort"><span class="ic">◐</span> Reasoning</div>
+    <div class="nav-item" data-page="setup"><span class="ic">⚙</span> Client Setup</div>
+
+    <div class="sidebar-foot">
+      <button class="theme-toggle" id="themeToggle" type="button">
+        <span id="themeIcon">☀</span> <span id="themeLabel">Light mode</span>
+      </button>
+      <div style="margin-top:10px"><span class="dot ok"></span> <span id="footStatus">running</span></div>
+    </div>
+  </aside>
+
+  <!-- ============ Main ============ -->
+  <main class="main">
+
+    <!-- ---------- Dashboard ---------- -->
+    <section class="page active" id="dashboard">
+      <div class="page-head">
+        <h1>Dashboard</h1>
+        <p>Live state of the proxy running on this machine.</p>
+      </div>
+
+      <div class="grid cols-4" style="margin-bottom:14px">
+        <div class="card stat">
+          <div class="label">Server</div>
+          <div class="value" id="dashServer"><span class="badge dim">…</span></div>
+          <div class="sub" id="dashServerSub">—</div>
+        </div>
+        <div class="card stat">
+          <div class="label">Copilot Token</div>
+          <div class="value" id="dashToken"><span class="badge dim">…</span></div>
+          <div class="sub" id="dashTokenSub">—</div>
+        </div>
+        <div class="card stat">
+          <div class="label">Models Available</div>
+          <div class="value mono" id="dashModels">—</div>
+          <div class="sub" id="dashModelsSub">—</div>
+        </div>
+        <div class="card stat">
+          <div class="label">Requests Today</div>
+          <div class="value mono" id="dashReqs">—</div>
+          <div class="sub" id="dashReqsSub">—</div>
+        </div>
+      </div>
+
+      <div class="grid cols-2">
+        <div class="card pad-lg">
+          <h3>Environment</h3>
+          <div class="kv">
+            <div class="k">Account type</div><div class="v" id="envAccount">—</div>
+            <div class="k">Web search</div><div class="v" id="envWeb">—</div>
+            <div class="k">Config path</div><div class="v" id="envConfig">—</div>
+          </div>
+        </div>
+        <div class="card pad-lg">
+          <h3 id="monthTitle">This Month</h3>
+          <div class="kv">
+            <div class="k">Total requests</div><div class="v" id="mReqs">—</div>
+            <div class="k">Input tokens</div><div class="v" id="mInput">—</div>
+            <div class="k">Cache read</div><div class="v" id="mCache">—</div>
+            <div class="k">Output tokens</div><div class="v" id="mOutput">—</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- Models ---------- -->
+    <section class="page" id="models">
+      <div class="page-head">
+        <h1>Models</h1>
+        <p>Models exposed by your Copilot subscription, with endpoint capabilities.</p>
+      </div>
+      <div class="toolbar">
+        <input type="text" id="modelFilter" placeholder="Filter by id or vendor…" style="width:260px" />
+        <span class="spacer"></span>
+        <span class="muted" id="modelCount">37 models</span>
+      </div>
+      <div class="card" style="padding:0">
+        <table>
+          <thead>
+            <tr><th>Model ID</th><th>Vendor</th><th class="num">Context</th><th>Capabilities</th></tr>
+          </thead>
+          <tbody id="modelRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ---------- Usage ---------- -->
+    <section class="page" id="usage">
+      <div class="page-head">
+        <h1>Usage</h1>
+        <p>Token usage aggregated from request logs.</p>
+      </div>
+      <div class="toolbar">
+        <label class="field" style="margin:0">Month</label>
+        <select id="usageMonth"></select>
+        <span class="spacer"></span>
+      </div>
+
+      <div class="grid cols-5" style="margin-bottom:14px">
+        <div class="card stat"><div class="label">Requests</div><div class="value mono" id="uReqs">—</div></div>
+        <div class="card stat"><div class="label">Input</div><div class="value mono" id="uInput">—</div></div>
+        <div class="card stat"><div class="label">Cache read</div><div class="value mono" id="uCache">—</div></div>
+        <div class="card stat"><div class="label">Output</div><div class="value mono" id="uOutput">—</div></div>
+        <div class="card stat"><div class="label">Cost</div><div class="value mono" id="uCost">—</div></div>
+      </div>
+
+      <div class="card" style="padding:0; margin-bottom:14px">
+        <table>
+          <thead><tr><th>Model</th><th class="num">Reqs</th><th class="num">Input</th><th class="num">Cache cr</th><th class="num">Cache rd</th><th class="num">Output</th><th class="num">Reason</th><th class="num">Share</th></tr></thead>
+          <tbody id="usageModelRows"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px">
+          <h3 style="margin:0">Daily token usage &amp; cost</h3>
+          <div class="chart-legend">
+            <span class="lg"><span class="sw" style="background:var(--c-input)"></span>Input</span>
+            <span class="lg"><span class="sw" style="background:var(--c-cachecr)"></span>Cache cr</span>
+            <span class="lg"><span class="sw" style="background:var(--c-cache)"></span>Cache rd</span>
+            <span class="lg"><span class="sw" style="background:var(--c-output)"></span>Output</span>
+            <span class="lg"><span class="sw" style="background:var(--c-reason)"></span>Reason</span>
+            <span class="lg"><span class="ln"></span>Cost (USD)</span>
+          </div>
+        </div>
+        <div class="chart-wrap" id="usageDayChart"></div>
+      </div>
+    </section>
+
+    <!-- ---------- Logs ---------- -->
+    <section class="page" id="logs">
+      <div class="page-head">
+        <h1>Request Logs</h1>
+        <p>Per-request records with token breakdown and latency.</p>
+      </div>
+      <div class="toolbar">
+        <select id="logDate"></select>
+        <div class="seg" id="logScope">
+          <button class="on" data-scope="all">All</button>
+          <button data-scope="errors">Errors</button>
+        </div>
+        <input type="text" id="logModel" placeholder="Filter model…" style="width:180px" />
+        <span class="spacer"></span>
+        <span class="muted" id="logCount"></span>
+      </div>
+      <div class="card" style="padding:0">
+        <table>
+          <thead><tr><th>Time</th><th class="num">Status</th><th>Model</th><th>Endpoint</th><th>Effort</th><th class="num">In</th><th class="num">Cache rd</th><th class="num">Out</th><th class="num">Dur</th></tr></thead>
+          <tbody id="logRows"></tbody>
+        </table>
+      </div>
+      <div class="toolbar" style="margin-top:14px; justify-content:flex-end">
+        <button class="ghost" id="logPrev">‹ Prev</button>
+        <span class="muted mono" id="logPageInfo" style="min-width:90px; text-align:center"></span>
+        <button class="ghost" id="logNext">Next ›</button>
+      </div>
+    </section>
+
+    <!-- ---------- Web Search ---------- -->
+    <section class="page" id="websearch">
+      <div class="page-head">
+        <h1>Web Search Fallback</h1>
+        <p>When a client requests the <span class="mono">web_search</span> tool but the upstream model can’t serve it, the proxy searches via your chosen provider and injects results. <span class="dim">(Claude Code only.)</span></p>
+      </div>
+
+      <div class="card pad-lg" style="margin-bottom:14px">
+        <div style="display:flex; align-items:center; justify-content:space-between">
+          <div>
+            <div style="font-weight:600; margin-bottom:2px">Enable web search</div>
+            <div class="muted" style="font-size:13px">Master switch. Requires the selected provider to have a saved key.</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="wsEnabled" checked />
+            <span class="track"><span class="knob"></span></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="card pad-lg">
+        <h3>Provider</h3>
+        <div class="provider-row sel" data-prov="tavily">
+          <div class="radio"></div>
+          <div class="pmeta">
+            <div class="pname">Tavily</div>
+            <div class="pdesc">Concise AI-curated summaries · returns score & direct answer · good general coverage</div>
+          </div>
+          <span class="badge green" id="tavilyKeyBadge">key set</span>
+        </div>
+        <div class="provider-row" data-prov="webiq">
+          <div class="radio"></div>
+          <div class="pmeta">
+            <div class="pname">WebIQ <span class="badge blue" style="margin-left:6px">Microsoft</span></div>
+            <div class="pdesc">Full-page text extraction · official-source-first · richer context, more verbose</div>
+          </div>
+          <span class="badge green" id="webiqKeyBadge">key set</span>
+        </div>
+
+        <div style="margin-top:18px; border-top:1px solid var(--border-soft); padding-top:18px">
+          <label class="field" for="wsKey">API key for <span class="mono" id="wsKeyProv">tavily</span></label>
+          <div style="display:flex; gap:10px">
+            <input type="password" id="wsKey" class="mono" placeholder="Leave blank to keep current key" style="flex:1" value="" />
+            <button class="ghost" id="wsReveal" type="button">Show</button>
+          </div>
+          <div class="help">Current: <span class="mono" id="wsKeyMask">tavi••••••••••••••••••••••••</span> · key is stored in <span class="mono">config.yaml</span> and never shown in full.</div>
+        </div>
+
+        <div style="display:flex; gap:10px; margin-top:20px">
+          <button class="primary" id="wsSave">Save &amp; apply</button>
+          <span class="spacer" style="flex:1"></span>
+          <span class="help" style="margin:0; align-self:center">Applies instantly — no restart needed.</span>
+        </div>
+      </div>
+
+      <div class="card pad-lg" style="margin-top:14px">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px">
+          <h3 style="margin:0">Test search</h3>
+          <span class="badge blue" id="wsTestProv" style="text-transform:none">tavily</span>
+        </div>
+        <div class="muted" style="font-size:13px; margin-bottom:12px">Run a live query against the <span id="wsTestProvName">selected</span> provider to verify the key works. Switch the provider above to test a different one. Returns the raw provider response.</div>
+        <div style="display:flex; gap:10px">
+          <input type="text" id="wsTestQuery" placeholder="e.g. latest stable version of Bun" style="flex:1" />
+          <button class="primary" id="wsTest">Search</button>
+        </div>
+        <div id="wsTestResult" style="margin-top:14px; display:none">
+          <div class="help" id="wsTestMeta" style="margin:0 0 8px"></div>
+          <div class="codeblock" id="wsTestJson" style="max-height:340px; overflow:auto; white-space:pre-wrap"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- Reasoning Effort ---------- -->
+    <section class="page" id="effort">
+      <div class="page-head">
+        <h1>Reasoning Effort</h1>
+        <p>Set the thinking effort applied to every request whose model supports it. Applies instantly to all connected clients — no restart, no per-client config.</p>
+      </div>
+
+      <div class="card pad-lg">
+        <label class="field">Target effort</label>
+        <div class="seg" id="effortSeg">
+          <button data-e="low">Low</button>
+          <button data-e="medium">Medium</button>
+          <button data-e="high">High</button>
+          <button data-e="xhigh">xHigh</button>
+          <button data-e="max">Max</button>
+        </div>
+        <div class="help" style="margin-top:10px">
+          The proxy sends this value, <strong>clamped to the nearest effort the model actually supports</strong>
+          (preferring the next stronger level). Stored in <span class="mono">config.yaml</span>.
+        </div>
+        <div style="display:flex; gap:10px; margin-top:18px; align-items:center">
+          <span class="badge green" id="effortCurrent" style="text-transform:none">high</span>
+          <span class="spacer" style="flex:1"></span>
+          <span class="help" style="margin:0">Applies instantly — also settable via <span class="mono">copilot-proxy effort &lt;value&gt;</span>.</span>
+        </div>
+      </div>
+
+      <div class="card pad-lg" style="margin-top:14px">
+        <h3 style="margin:0 0 4px">How each model resolves</h3>
+        <div class="muted" style="font-size:13px; margin-bottom:12px">Only models advertising a <span class="mono">reasoning_effort</span> capability are affected. Others (e.g. 4.5, haiku) ignore effort entirely and are sent unchanged.</div>
+        <div id="effortResolveTable" class="mono" style="font-size:13px"></div>
+      </div>
+    </section>
+
+    <!-- ---------- Client Setup ---------- -->
+    <section class="page" id="setup">
+      <div class="page-head">
+        <h1>Client Setup</h1>
+        <p>Point your CLI tools at this proxy. Apply writes the config to its standard location, merging into any existing settings.</p>
+      </div>
+      <div class="toolbar">
+        <div class="seg" id="setupTarget">
+          <button class="on" data-t="claude">Claude Code</button>
+          <button data-t="codex">Codex</button>
+          <button data-t="gemini">Gemini</button>
+        </div>
+        <span class="spacer"></span>
+        <button class="ghost" id="copyCfg">Copy</button>
+        <button class="primary" id="applyCfg">Apply to Claude Code</button>
+      </div>
+
+      <div class="card pad-lg" style="margin-bottom:14px">
+        <div class="grid cols-2" style="gap:18px">
+          <div id="modelField">
+            <label class="field" for="setupModelBtn">Model</label>
+            <div class="csel" id="setupModelCsel">
+              <button type="button" class="csel-btn" id="setupModelBtn" aria-haspopup="listbox" aria-expanded="false">
+                <span class="csel-val placeholder">Select…</span>
+                <svg class="csel-chev" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2.75 4.5 6 7.75 9.25 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <div class="csel-menu" id="setupModelMenu" role="listbox" tabindex="-1"></div>
+              <select id="setupModel" style="display:none" aria-hidden="true"></select>
+            </div>
+          </div>
+          <div id="locationField">
+            <label class="field">Write location</label>
+            <div class="seg" id="setupWhere">
+              <button class="on" data-w="both">Both</button>
+              <button data-w="wsl">WSL only</button>
+              <button data-w="win">Windows only</button>
+            </div>
+            <div class="help" id="locationHint" style="margin-top:7px"></div>
+          </div>
+        </div>
+
+        <div id="codexModeField" style="margin-top:18px; display:none">
+          <label class="field">Codex mode</label>
+          <div class="seg" id="setupCodexMode">
+            <button class="on" data-m="proxy">Copilot Proxy</button>
+            <button data-m="aoai">Azure OpenAI</button>
+          </div>
+        </div>
+
+        <div id="aoaiFields" style="margin-top:18px; display:none">
+          <div class="grid cols-3" style="gap:14px">
+            <div>
+              <label class="field" for="aoaiBaseUrl">Azure base URL</label>
+              <input type="text" id="aoaiBaseUrl" class="mono" placeholder="https://xxx.cognitiveservices.azure.com/openai" style="width:100%" />
+            </div>
+            <div>
+              <label class="field" for="aoaiModel">Model</label>
+              <input type="text" id="aoaiModel" class="mono" placeholder="gpt-5.3-codex" style="width:100%" />
+            </div>
+            <div>
+              <label class="field" for="aoaiEnvKey">API-key env var</label>
+              <input type="text" id="aoaiEnvKey" class="mono" placeholder="AZURE_OPENAI_API_KEY" style="width:100%" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; font-size:12.5px">
+          <span class="muted">Writes to</span>
+          <span class="mono" id="setupPath">~/.claude/settings.json</span>
+        </div>
+        <div class="codeblock" id="setupCode"></div>
+        <div class="help">Existing keys are preserved — only the proxy-related fields are merged in. Equivalent to <span class="mono">copilot-proxy config <span id="setupCli">claude</span></span>.</div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="toast" id="toast">Saved ✓</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+async function getJSON(url){ const r = await fetch(url); if(!r.ok) throw new Error(await r.text()); return r.json(); }
+async function postJSON(url, body){ const r = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); const d = await r.json().catch(()=>({})); return {ok:r.ok, data:d}; }
+const fmtTokN = (n) => n>=1e9?(n/1e9).toFixed(1)+"B":n>=1e6?(n/1e6).toFixed(1)+"M":n>=1e3?(n/1e3).toFixed(0)+"K":String(n||0);
+const fmtUsd = (a) => a===0?"$0.00":a<0.01?"$"+a.toFixed(4):a<1?"$"+a.toFixed(3):"$"+a.toFixed(2);
+
+function toast(msg, bad){ const t=$("toast"); t.textContent=msg; t.style.borderLeftColor = bad ? "var(--red)" : "var(--green)"; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),2000); }
+
+// ---------- nav ----------
+const LOADED = {};
+document.querySelectorAll('.nav-item').forEach(n => n.onclick = () => {
+  document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
+  n.classList.add('active');
+  const page = n.dataset.page;
+  $(page).classList.add('active');
+  loadPage(page);
+});
+function loadPage(page){
+  if (page === "usage") loadUsage();          // always reload (month selector)
+  else if (page === "logs") loadLogs();       // always reload (date selector)
+  else if (page === "setup") { if(!LOADED.setup){ LOADED.setup=true; initSetup(); } }
+  else if (!LOADED[page]) { LOADED[page]=true;
+    if (page === "dashboard") loadDashboard();
+    else if (page === "models") loadModels();
+    else if (page === "websearch") loadWebSearch();
+    else if (page === "effort") loadEffort();
+  }
+}
+
+// ---------- theme ----------
+function applyTheme(mode){
+  document.documentElement.setAttribute('data-theme', mode);
+  const dark = mode === 'dark';
+  $("themeIcon").textContent = dark ? '☀' : '☾';
+  $("themeLabel").textContent = dark ? 'Light mode' : 'Dark mode';
+  if (typeof renderDayChart === 'function' && window.__DAYS) {
+    const wrap = $("usageDayChart"); if (wrap) wrap.innerHTML = renderDayChart(window.__DAYS);
+  }
+}
+let themeMode = localStorage.getItem('cp-theme') || 'dark';
+applyTheme(themeMode);
+$("themeToggle").onclick = () => { themeMode = themeMode === 'dark' ? 'light' : 'dark'; localStorage.setItem('cp-theme', themeMode); applyTheme(themeMode); };
+
+// ---------- dashboard ----------
+async function loadDashboard(){
+  try {
+    const d = await getJSON('/api/portal/dashboard');
+    $("dashServer").innerHTML = d.server.online
+      ? '<span class="badge green"><span class="dot ok"></span> ONLINE</span>' : '<span class="badge red">OFFLINE</span>';
+    $("dashServerSub").textContent = d.server.address + ":" + d.server.port;
+    $("footStatus").textContent = "running · " + d.server.address + ":" + d.server.port;
+    $("dashToken").innerHTML = d.token.valid ? '<span class="badge green">VALID</span>' : '<span class="badge red">EXPIRED</span>';
+    $("dashTokenSub").textContent = d.token.valid ? ("expires in " + d.token.expiresInMin + "m · auto-refresh") : "run: copilot-proxy login";
+    $("dashModels").textContent = d.models.total;
+    $("dashModelsSub").textContent = d.models.anthropic + " Anthropic-compatible";
+    $("dashReqs").textContent = d.requestsToday.total.toLocaleString();
+    $("dashReqsSub").textContent = d.requestsToday.errors + " errors";
+    const e = d.environment;
+    $("envAccount").textContent = e.account_type;
+    $("envWeb").innerHTML = e.web_search.enabled
+      ? '<span class="badge green">ON · ' + esc(e.web_search.provider) + '</span>'
+      : '<span class="badge dim">OFF</span>';
+    $("envConfig").textContent = e.config_path;
+    const m = d.month;
+    $("monthTitle").textContent = "This Month · " + m.month;
+    $("mReqs").textContent = m.total_requests.toLocaleString();
+    $("mInput").textContent = fmtTokN(m.input_tokens);
+    $("mCache").textContent = fmtTokN(m.cache_read_input_tokens);
+    $("mOutput").textContent = fmtTokN(m.output_tokens);
+  } catch(err){ toast("Failed to load dashboard", true); }
+}
+
+// ---------- models ----------
+let MODELS = [];
+function capBadge(c){ const cls=c==="Anthropic"?"chip cap":"chip"; return '<span class="'+cls+'">'+esc(c)+'</span>'; }
+function renderModels(filter){
+  const f=(filter||"").toLowerCase();
+  const rows=MODELS.filter(m=>m.id.toLowerCase().includes(f)||m.vendor.toLowerCase().includes(f));
+  $("modelRows").innerHTML = rows.map(m=>
+    '<tr><td class="mono">'+esc(m.id)+'</td><td class="muted">'+esc(m.vendor)+'</td>'+
+    '<td class="num">'+(m.contextK?m.contextK+"K":"—")+'</td>'+
+    '<td><div class="chips">'+m.capabilities.map(capBadge).join("")+'</div></td></tr>').join("");
+  $("modelCount").textContent = rows.length+" models";
+}
+async function loadModels(){
+  try { const d = await getJSON('/api/portal/models'); MODELS = d.models; renderModels(""); }
+  catch(err){ toast("Failed to load models", true); }
+}
+$("modelFilter").oninput = e => renderModels(e.target.value);
+
+// ---------- usage ----------
+async function loadUsage(){
+  const month = $("usageMonth").value || "";
+  try {
+    const d = await getJSON('/api/portal/usage' + (month ? '?month='+month : ''));
+    // month selector options
+    if (d.available && d.available.length) {
+      const cur = $("usageMonth").value;
+      $("usageMonth").innerHTML = d.available.map(mo=>'<option'+(mo===d.month?' selected':'')+'>'+mo+'</option>').join("");
+      if (cur && d.available.includes(cur)) $("usageMonth").value = cur;
+    }
+    if (d.empty) {
+      $("uReqs").textContent="0"; $("uInput").textContent="0"; $("uCache").textContent="0"; $("uOutput").textContent="0";
+      $("usageModelRows").innerHTML = '<tr><td colspan="8" class="dim" style="text-align:center;padding:24px">No usage for this month</td></tr>';
+      window.__DAYS=[]; $("usageDayChart").innerHTML="";
+      return;
+    }
+    $("uReqs").textContent = d.total_requests.toLocaleString();
+    $("uInput").textContent = fmtTokN(d.totals.input_tokens);
+    $("uCache").textContent = fmtTokN(d.totals.cache_read_input_tokens);
+    $("uOutput").textContent = fmtTokN(d.totals.output_tokens);
+    $("uCost").textContent = fmtUsd(d.total_cost||0);
+    const totalReq = d.by_model.reduce((s,m)=>s+m.requests,0) || 1;
+    $("usageModelRows").innerHTML = d.by_model.map(m=>{
+      const pct=Math.round(m.requests/totalReq*100);
+      return '<tr><td class="mono">'+esc(m.name)+'</td>'+
+        '<td class="num">'+m.requests.toLocaleString()+'</td>'+
+        '<td class="num">'+fmtTokN(m.input_tokens)+'</td>'+
+        '<td class="num">'+fmtTokN(m.cache_creation_input_tokens)+'</td>'+
+        '<td class="num">'+fmtTokN(m.cache_read_input_tokens)+'</td>'+
+        '<td class="num">'+fmtTokN(m.output_tokens)+'</td>'+
+        '<td class="num">'+fmtTokN(m.reasoning_tokens)+'</td>'+
+        '<td class="num">'+pct+'%</td></tr>';
+    }).join("");
+    // chart data: [dayLabel, input, cacheCreate, cacheRead, output, reason, cost]
+    window.__DAYS = d.by_day.map(x=>[x.day.slice(5), x.input_tokens, x.cache_creation_input_tokens, x.cache_read_input_tokens, x.output_tokens, x.reasoning_tokens, x.cost||0]);
+    $("usageDayChart").innerHTML = window.__DAYS.length ? renderDayChart(window.__DAYS) : '<div class="dim" style="padding:20px">No daily data</div>';
+  } catch(err){ toast("Failed to load usage", true); }
+}
+$("usageMonth").onchange = loadUsage;
+
+// Dual-axis combo: stacked token bars (left axis) + cost line (right axis).
+function renderDayChart(days){
+  const css=getComputedStyle(document.documentElement);
+  const C=n=>css.getPropertyValue(n).trim();
+  const COL_COST=C("--c-cost"), COL_GRID=C("--c-grid"), COL_DIM=C("--fg-dim"), COL_MUTED=C("--fg-muted"), COL_BG=C("--bg");
+  const W=720, H=240, padL=54, padR=52, padT=12, padB=28;
+  const iw=W-padL-padR, ih=H-padT-padB;
+  const SEG=[["Input",1,C("--c-input")],["Cache cr",2,C("--c-cachecr")],["Cache rd",3,C("--c-cache")],["Output",4,C("--c-output")],["Reason",5,C("--c-reason")]];
+  const totals=days.map(d=>d[1]+d[2]+d[3]+d[4]+d[5]);
+  const maxTok=Math.max(1,...totals)*1.1;
+  const maxCost=Math.max(0.0001,...days.map(d=>d[6]))*1.15;
+  const n=days.length;
+  const slot=iw/n, bw=Math.min(46, slot*0.5);
+  const yCost=v=>padT+ih-(v/maxCost)*ih;
+  const xCenter=i=>padL+slot*i+slot/2;
+  const fmtTok=v=>v>=1e9?(v/1e9).toFixed(1)+"B":v>=1e6?(v/1e6).toFixed(0)+"M":v>=1e3?(v/1e3).toFixed(0)+"K":v;
+
+  let bars="";
+  days.forEach((d,i)=>{
+    let acc=0;
+    const x=xCenter(i)-bw/2;
+    SEG.forEach(([,idx,col])=>{
+      const val=d[idx]; if(!val) return;
+      const h=(val/maxTok)*ih;
+      const y=padT+ih-((acc+val)/maxTok)*ih;
+      bars+='<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw+'" height="'+Math.max(h,0).toFixed(1)+'" fill="'+col+'" rx="1.5"><title>'+d[0]+' '+col+': '+fmtTok(val)+'</title></rect>';
+      acc+=val;
+    });
+  });
+  const pts=days.map((d,i)=>[xCenter(i), yCost(d[6])]);
+  const line='<polyline points="'+pts.map(p=>p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ")+'" fill="none" stroke="'+COL_COST+'" stroke-width="2" stroke-linejoin="round"/>';
+  const dots=pts.map((p,i)=>'<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="3.5" fill="'+COL_BG+'" stroke="'+COL_COST+'" stroke-width="2"><title>'+days[i][0]+' cost: $'+days[i][6].toFixed(2)+'</title></circle>').join("");
+  let grid="", lAxis="", rAxis="";
+  const TICKS=4;
+  for(let t=0;t<=TICKS;t++){
+    const frac=t/TICKS, y=padT+ih-frac*ih;
+    grid+='<line x1="'+padL+'" y1="'+y.toFixed(1)+'" x2="'+(W-padR)+'" y2="'+y.toFixed(1)+'" stroke="'+COL_GRID+'" stroke-width="1"/>';
+    lAxis+='<text x="'+(padL-8)+'" y="'+(y+3).toFixed(1)+'" text-anchor="end" font-size="10" fill="'+COL_DIM+'">'+fmtTok(maxTok*frac)+'</text>';
+    rAxis+='<text x="'+(W-padR+8)+'" y="'+(y+3).toFixed(1)+'" text-anchor="start" font-size="10" fill="'+COL_COST+'">$'+(maxCost*frac).toFixed(1)+'</text>';
+  }
+  const xLabels=days.map((d,i)=>'<text x="'+xCenter(i).toFixed(1)+'" y="'+(H-9)+'" text-anchor="middle" font-size="10" fill="'+COL_MUTED+'">'+d[0]+'</text>').join("");
+  return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" preserveAspectRatio="xMidYMid meet" role="img">'+grid+bars+line+dots+lAxis+rAxis+xLabels+'</svg>';
+}
+
+// ---------- logs ----------
+let logScope="all";
+let LOGS = [];
+let logPage = 1;
+const LOG_PAGE_SIZE = 50;
+function filteredLogs(){
+  const mf=$("logModel").value.toLowerCase();
+  let rows=LOGS.filter(l=>l.model.toLowerCase().includes(mf));
+  if(logScope==="errors") rows=rows.filter(l=>l.status>=400 || l.error);
+  return rows;
+}
+function renderLogs(){
+  const rows=filteredLogs();
+  const pages=Math.max(1, Math.ceil(rows.length/LOG_PAGE_SIZE));
+  if(logPage>pages) logPage=pages;
+  const start=(logPage-1)*LOG_PAGE_SIZE;
+  const pageRows=rows.slice(start, start+LOG_PAGE_SIZE);
+  $("logRows").innerHTML = pageRows.map(l=>{
+    const cls=l.status>=500?"s5":l.status>=400?"s4":"s2";
+    const effortCell = l.effort ? '<td><span class="badge '+(l.effort==="max"?"green":"dim")+'" style="text-transform:none">'+esc(l.effort)+'</span></td>' : '<td class="dim">—</td>';
+    if (l.error) {
+      return '<tr><td class="mono dim">'+esc(l.time)+'</td>'+
+        '<td class="num status-pill '+cls+'">'+l.status+'</td>'+
+        '<td class="mono">'+esc(l.model)+'</td><td class="muted">'+esc(l.endpoint)+'</td>'+
+        effortCell+
+        '<td class="num dim" colspan="3">'+esc(l.error.slice(0,48))+'</td>'+
+        '<td class="num dim">'+(l.duration_ms/1000).toFixed(1)+'s</td></tr>';
+    }
+    return '<tr><td class="mono dim">'+esc(l.time)+'</td>'+
+      '<td class="num status-pill '+cls+'">'+l.status+'</td>'+
+      '<td class="mono">'+esc(l.model)+'</td><td class="muted">'+esc(l.endpoint)+'</td>'+
+      effortCell+
+      '<td class="num">'+fmtTokN(l.input)+'</td><td class="num">'+fmtTokN(l.cache_read)+'</td><td class="num">'+fmtTokN(l.output)+'</td>'+
+      '<td class="num dim">'+(l.duration_ms/1000).toFixed(1)+'s</td></tr>';
+  }).join("");
+  $("logCount").textContent = rows.length+" entries";
+  $("logPageInfo").textContent = "Page "+logPage+" / "+pages;
+  $("logPrev").disabled = logPage<=1;
+  $("logNext").disabled = logPage>=pages;
+}
+function renderLogsReset(){ logPage=1; renderLogs(); }
+async function loadLogs(){
+  const date = $("logDate").value || "";
+  try {
+    const d = await getJSON('/api/portal/logs' + (date ? '?date='+date : ''));
+    if (d.available && d.available.length) {
+      const cur = $("logDate").value;
+      $("logDate").innerHTML = d.available.map(dt=>'<option'+(dt===d.date?' selected':'')+'>'+dt+'</option>').join("");
+      if (cur && d.available.includes(cur)) $("logDate").value = cur;
+    }
+    LOGS = d.entries; renderLogsReset();
+  } catch(err){ toast("Failed to load logs", true); }
+}
+$("logDate").onchange = loadLogs;
+$("logModel").oninput = renderLogsReset;
+$("logPrev").onclick = ()=>{ if(logPage>1){ logPage--; renderLogs(); } };
+$("logNext").onclick = ()=>{ logPage++; renderLogs(); };
+document.querySelectorAll('#logScope button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#logScope button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); logScope=b.dataset.scope; renderLogsReset();
+});
+
+// ---------- web search ----------
+let WS = null;
+let wsProv = "tavily";
+function renderWebSearch(){
+  $("wsEnabled").checked = WS.enabled;
+  // provider rows
+  document.querySelectorAll('.provider-row').forEach(r=>{
+    const name = r.dataset.prov;
+    const meta = WS.providers.find(p=>p.name===name);
+    r.classList.toggle('sel', name===wsProv);
+    const badge = r.querySelector('.badge');
+    if (badge && meta) {
+      badge.className = meta.hasKey ? "badge green" : "badge dim";
+      badge.textContent = meta.hasKey ? "key set" : "no key";
+    }
+  });
+  const cur = WS.providers.find(p=>p.name===wsProv);
+  $("wsKeyProv").textContent = wsProv;
+  $("wsKeyMask").textContent = cur && cur.maskedKey ? cur.maskedKey : "(not set)";
+  $("wsKey").value = "";
+  // Test-search panel targets whichever provider is selected here.
+  const provLabel = cur && cur.label ? cur.label : wsProv;
+  $("wsTestProv").textContent = wsProv;
+  $("wsTestProvName").textContent = provLabel;
+}
+async function loadWebSearch(){
+  try { WS = await getJSON('/api/portal/web-search'); wsProv = WS.provider; renderWebSearch(); }
+  catch(err){ toast("Failed to load web search", true); }
+}
+document.querySelectorAll('.provider-row').forEach(r=>r.onclick=()=>{ wsProv=r.dataset.prov; renderWebSearch(); });
+$("wsReveal").onclick=()=>{ const i=$("wsKey"); i.type=i.type==="password"?"text":"password"; $("wsReveal").textContent=i.type==="password"?"Show":"Hide"; };
+$("wsSave").onclick=async()=>{
+  const body={ provider:wsProv, enabled:$("wsEnabled").checked };
+  const key=$("wsKey").value.trim(); if(key) body.key=key;
+  const {ok,data}=await postJSON('/api/portal/web-search', body);
+  if(ok){ WS=data.state; renderWebSearch(); toast("Saved & applied ✓ ("+wsProv+")"); }
+  else toast(data.error||"Save failed", true);
+};
+$("wsEnabled").onchange=async(e)=>{
+  const {ok,data}=await postJSON('/api/portal/web-search', { provider:wsProv, enabled:e.target.checked });
+  if(ok){ WS=data.state; renderWebSearch(); toast(e.target.checked?"Web search enabled":"Web search disabled"); }
+  else { e.target.checked=!e.target.checked; toast(data.error||"Failed", true); }
+};
+async function runWsTest(){
+  const q = $("wsTestQuery").value.trim();
+  if(!q){ toast("Enter a query first", true); return; }
+  // Probe the provider currently selected above (wsProv), passing the unsaved
+  // key field too so a freshly-typed key can be tested before saving.
+  const body = { query:q, provider:wsProv };
+  const k = $("wsKey").value.trim(); if(k) body.key = k;
+  $("wsTest").disabled = true; $("wsTest").textContent = "Searching…";
+  const {ok,data}=await postJSON('/api/portal/web-search/test', body);
+  $("wsTest").disabled = false; $("wsTest").textContent = "Search";
+  $("wsTestResult").style.display = "block";
+  if(ok){
+    $("wsTestMeta").innerHTML = '<span class="badge green">'+esc(data.provider)+'</span> '+data.count+' result(s) for "'+esc(data.query)+'"';
+    $("wsTestJson").textContent = JSON.stringify(data.results, null, 2);
+  } else {
+    $("wsTestMeta").innerHTML = '<span class="badge red">error</span> '+esc(data.provider||"");
+    $("wsTestJson").textContent = data.error || "Search failed";
+  }
+}
+$("wsTest").onclick = runWsTest;
+$("wsTestQuery").addEventListener("keydown", e=>{ if(e.key==="Enter") runWsTest(); });
+
+// ---------- reasoning effort ----------
+const EFFORT_LADDER = ["low","medium","high","xhigh","max"];
+let EFFORT_STATE = { effort:"high" };
+// Mirror backend resolveEffort: exact match, else nearest stronger, else nearest weaker.
+function resolveEffortClient(target, supported){
+  if(!supported || !supported.length) return null;
+  if(supported.includes(target)) return target;
+  const ti = EFFORT_LADDER.indexOf(target);
+  if(ti===-1){ for(let i=EFFORT_LADDER.length-1;i>=0;i--) if(supported.includes(EFFORT_LADDER[i])) return EFFORT_LADDER[i]; return null; }
+  for(let i=ti+1;i<EFFORT_LADDER.length;i++) if(supported.includes(EFFORT_LADDER[i])) return EFFORT_LADDER[i];
+  for(let i=ti-1;i>=0;i--) if(supported.includes(EFFORT_LADDER[i])) return EFFORT_LADDER[i];
+  return null;
+}
+function renderEffort(){
+  const cur = EFFORT_STATE.effort;
+  $("effortCurrent").textContent = cur;
+  document.querySelectorAll('#effortSeg button').forEach(b=>b.classList.toggle('on', b.dataset.e===cur));
+  // Resolve table from the model catalog (only effort-capable models).
+  const models = (window.__EFFORT_MODELS || []);
+  if(!models.length){ $("effortResolveTable").innerHTML = '<span class="muted">No effort-capable models in catalog.</span>'; return; }
+  const rows = models.map(m=>{
+    const resolved = resolveEffortClient(cur, m.efforts);
+    const snapped = resolved && resolved!==cur;
+    const badge = resolved
+      ? '<span class="badge '+(snapped?'blue':'green')+'" style="text-transform:none">'+esc(resolved)+(snapped?' ↑':'')+'</span>'
+      : '<span class="badge dim">—</span>';
+    return '<div style="display:flex; align-items:center; gap:10px; padding:5px 0; border-top:1px solid var(--border-soft)">'
+      + '<span style="flex:1">'+esc(m.id)+'</span>'
+      + '<span class="muted" style="font-size:12px">['+m.efforts.join(', ')+']</span>'
+      + '<span style="width:74px; text-align:right">'+badge+'</span></div>';
+  }).join("");
+  $("effortResolveTable").innerHTML = rows;
+}
+async function loadEffort(){
+  try {
+    const d = await getJSON('/api/portal/effort');
+    EFFORT_STATE = d;
+    // Pull effort-capable models from the models endpoint for the resolve table.
+    const md = await getJSON('/api/portal/models');
+    window.__EFFORT_MODELS = (md.models||[])
+      .filter(m=>Array.isArray(m.reasoning_effort) && m.reasoning_effort.length)
+      .map(m=>({ id:m.id, efforts:m.reasoning_effort }));
+    renderEffort();
+  } catch(err){ toast("Failed to load effort settings", true); }
+}
+document.querySelectorAll('#effortSeg button').forEach(b=>b.onclick=async()=>{
+  const value = b.dataset.e;
+  if(value===EFFORT_STATE.effort) return;
+  const {ok,data}=await postJSON('/api/portal/effort', { effort:value });
+  if(ok){ EFFORT_STATE=data.state; renderEffort(); toast("Effort set to "+value+" ✓"); }
+  else toast(data.error||"Failed", true);
+});
+
+// ---------- setup ----------
+const SETUP_LABEL = { claude:"Claude Code", codex:"Codex", gemini:"Gemini" };
+let setupTarget="claude", setupWhere="both", codexMode="proxy", SETUP_STATE=null;
+window.__setupSeq = 0;
+function setupOpts(){
+  const o = { target:setupTarget, model:$("setupModel").value||undefined, where:setupWhere };
+  if (setupTarget==="codex") {
+    o.codexMode=codexMode;
+    if (codexMode==="aoai") { o.aoaiBaseUrl=$("aoaiBaseUrl").value; o.aoaiModel=$("aoaiModel").value; o.aoaiEnvKey=$("aoaiEnvKey").value; }
+  }
+  return o;
+}
+async function refreshSetupPreview(){
+  const o=setupOpts();
+  const q=new URLSearchParams(); Object.entries(o).forEach(([k,v])=>{ if(v!=null && v!=="") q.set(k,v); });
+  const myTarget = setupTarget;
+  const seq = ++window.__setupSeq;
+  try {
+    const d = await getJSON('/api/portal/setup?'+q.toString());
+    // Ignore stale responses: a newer request was fired while this was in flight.
+    if (seq !== window.__setupSeq) return;
+    SETUP_STATE = d;
+    $("setupCode").textContent = d.content;
+    $("setupCli").textContent = myTarget;
+    $("setupPath").textContent = d.filename;
+    $("applyCfg").textContent = "Apply to "+SETUP_LABEL[myTarget];
+    // populate model dropdown (only when target's list differs from what's shown)
+    const sel=$("setupModel"), want=(d.models||[]).map(m=>m.id).join(",");
+    if (sel.dataset.for !== want) {
+      sel.dataset.for=want;
+      sel.innerHTML=(d.models||[]).map(m=>'<option value="'+esc(m.id)+'">'+esc(m.display)+'</option>').join("");
+      if (d.selectedModel) sel.value=d.selectedModel;
+    }
+    syncModelCsel();
+    // location hint + availability of "Windows only"
+    const win=d.locations.win;
+    $("locationHint").textContent = win ? ("WSL: "+d.locations.wsl) : ("WSL only (no Windows home detected)");
+    const winBtn=document.querySelector('#setupWhere button[data-w="win"]');
+    const bothBtn=document.querySelector('#setupWhere button[data-w="both"]');
+    if (winBtn) winBtn.style.display = win ? "" : "none";
+    if (bothBtn) bothBtn.style.display = win ? "" : "none";
+    if (!win && setupWhere!=="wsl") { setupWhere="wsl"; document.querySelectorAll('#setupWhere button').forEach(x=>x.classList.toggle('on', x.dataset.w==="wsl")); }
+    $("applyCfg").disabled = false;
+  } catch(err){ toast("Failed to load setup", true); }
+}
+// Custom themed model picker. The hidden <select id="setupModel"> stays the
+// value source-of-truth (setupOpts/refresh logic read it); this mirrors its
+// options into a div-based listbox and writes the chosen value back.
+let cselOpen=false, cselActive=-1;
+function syncModelCsel(){
+  const sel=$("setupModel"), menu=$("setupModelMenu"), valEl=$("setupModelBtn").querySelector(".csel-val");
+  const opts=Array.from(sel.options);
+  const cur=sel.value;
+  menu.innerHTML=opts.map((o,i)=>
+    '<div class="csel-opt'+(o.value===cur?' sel':'')+'" role="option" data-i="'+i+'" data-val="'+esc(o.value)+'" aria-selected="'+(o.value===cur)+'">'+
+    '<span class="csel-tick">✓</span><span>'+esc(o.textContent)+'</span></div>').join("");
+  const selOpt=opts.find(o=>o.value===cur);
+  if (selOpt){ valEl.textContent=selOpt.textContent; valEl.classList.remove("placeholder"); }
+  else { valEl.textContent="Select…"; valEl.classList.add("placeholder"); }
+  menu.querySelectorAll(".csel-opt").forEach(el=>{
+    el.onclick=()=>{ chooseModelCsel(el.dataset.val); };
+    el.onmouseenter=()=>{ setCselActive(parseInt(el.dataset.i,10)); };
+  });
+}
+function setCselActive(i){
+  cselActive=i;
+  $("setupModelMenu").querySelectorAll(".csel-opt").forEach(el=>el.classList.toggle("active", parseInt(el.dataset.i,10)===i));
+}
+function openModelCsel(){
+  const sel=$("setupModel"); if(!sel.options.length) return;
+  cselOpen=true; $("setupModelCsel").classList.add("open"); $("setupModelBtn").setAttribute("aria-expanded","true");
+  const cur=sel.selectedIndex>=0?sel.selectedIndex:0; setCselActive(cur);
+  const act=$("setupModelMenu").querySelector('.csel-opt[data-i="'+cur+'"]'); if(act) act.scrollIntoView({block:"nearest"});
+}
+function closeModelCsel(){ cselOpen=false; $("setupModelCsel").classList.remove("open"); $("setupModelBtn").setAttribute("aria-expanded","false"); }
+function chooseModelCsel(val){
+  const sel=$("setupModel"); if(sel.value!==val){ sel.value=val; syncModelCsel(); refreshSetupPreview(); }
+  else syncModelCsel();
+  closeModelCsel(); $("setupModelBtn").focus();
+}
+function initModelCsel(){
+  const btn=$("setupModelBtn"), menu=$("setupModelMenu");
+  btn.onclick=(e)=>{ e.stopPropagation(); cselOpen?closeModelCsel():openModelCsel(); };
+  btn.onkeydown=(e)=>{
+    if(e.key==="ArrowDown"){ e.preventDefault(); if(!cselOpen) openModelCsel(); else moveCsel(1); }
+    else if(e.key==="ArrowUp"){ e.preventDefault(); if(!cselOpen) openModelCsel(); else moveCsel(-1); }
+    else if(e.key==="Enter"||e.key===" "){
+      e.preventDefault();
+      if(!cselOpen){ openModelCsel(); return; }
+      const el=menu.querySelector('.csel-opt[data-i="'+cselActive+'"]');
+      if(el) chooseModelCsel(el.dataset.val); else closeModelCsel();
+    }
+    else if(e.key==="Escape"){ closeModelCsel(); }
+  };
+  menu.onkeydown=(e)=>{
+    if(e.key==="ArrowDown"){ e.preventDefault(); moveCsel(1); }
+    else if(e.key==="ArrowUp"){ e.preventDefault(); moveCsel(-1); }
+    else if(e.key==="Enter"){ e.preventDefault(); const el=menu.querySelector('.csel-opt[data-i="'+cselActive+'"]'); if(el) chooseModelCsel(el.dataset.val); }
+    else if(e.key==="Escape"){ e.preventDefault(); closeModelCsel(); btn.focus(); }
+  };
+  document.addEventListener("click",(e)=>{ if(cselOpen && !$("setupModelCsel").contains(e.target)) closeModelCsel(); });
+}
+function moveCsel(dir){
+  const n=$("setupModel").options.length; if(!n) return;
+  let i=cselActive<0?0:cselActive+dir; if(i<0)i=0; if(i>=n)i=n-1;
+  setCselActive(i);
+  const el=$("setupModelMenu").querySelector('.csel-opt[data-i="'+i+'"]'); if(el) el.scrollIntoView({block:"nearest"});
+}
+function syncCodexVisibility(){
+  $("codexModeField").style.display = setupTarget==="codex" ? "" : "none";
+  $("aoaiFields").style.display = (setupTarget==="codex" && codexMode==="aoai") ? "" : "none";
+  // model + WSL/Win location are irrelevant in AOAI mode
+  const aoai = setupTarget==="codex" && codexMode==="aoai";
+  $("modelField").style.display = aoai ? "none" : "";
+}
+function initSetup(){
+  document.querySelectorAll('#setupTarget button').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('#setupTarget button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); setupTarget=b.dataset.t; syncCodexVisibility(); refreshSetupPreview();
+  });
+  document.querySelectorAll('#setupWhere button').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('#setupWhere button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); setupWhere=b.dataset.w;
+  });
+  document.querySelectorAll('#setupCodexMode button').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('#setupCodexMode button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); codexMode=b.dataset.m; syncCodexVisibility(); refreshSetupPreview();
+  });
+  $("setupModel").onchange = refreshSetupPreview;
+  initModelCsel();
+  ["aoaiBaseUrl","aoaiModel","aoaiEnvKey"].forEach(id=>$(id).oninput = ()=>{ clearTimeout(window.__aoaiT); window.__aoaiT=setTimeout(refreshSetupPreview,300); });
+  $("copyCfg").onclick=()=>{ navigator.clipboard?.writeText($("setupCode").textContent); toast("Copied to clipboard"); };
+  $("applyCfg").onclick=async()=>{
+    const {ok,data}=await postJSON('/api/portal/setup', setupOpts());
+    if(ok) toast("Applied ✓ wrote "+(data.written||[]).length+" file(s)");
+    else toast(data.error||"Apply failed", true);
+  };
+  $("applyCfg").disabled = true;   // until the first preview resolves
+  syncCodexVisibility();
+  refreshSetupPreview();
+}
+
+// ---------- boot ----------
+loadDashboard(); LOADED.dashboard = true;
+</script>
+</body>
+</html>

@@ -66,6 +66,7 @@ export async function startServer(opts: { port?: string; host?: string }) {
   process.on("SIGINT", shutdown);
 
   console.log(`[Server] Listening on http://${config.address}:${config.port}`);
+  console.log(`[Portal] Config portal: http://${config.address}:${config.port}/`);
 }
 
 function printModels() {

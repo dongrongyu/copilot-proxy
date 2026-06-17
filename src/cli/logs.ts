@@ -58,9 +58,10 @@ export async function logsCommand(opts: {
       const outK = fmtK(e.output_tokens ?? 0);
       const rK = fmtK(e.reasoning_tokens ?? 0);
       const dur = (e.duration_ms / 1000).toFixed(1);
+      const effort = (e.effort ?? "").padEnd(6); // "" for non-thinking requests
       console.log(
         `[${time}] ${String(e.status_code).padEnd(3)}  ${shortModel.padEnd(24)} ${e.endpoint.padEnd(20)} ` +
-          `${inK.padStart(6)} in ${ccK.padStart(6)} cc ${crK.padStart(6)} cr ${outK.padStart(6)} out ${rK.padStart(5)} r  ${dur}s`
+          `${effort} ${inK.padStart(6)} in ${ccK.padStart(6)} cc ${crK.padStart(6)} cr ${outK.padStart(6)} out ${rK.padStart(5)} r  ${dur}s`
       );
     }
   }

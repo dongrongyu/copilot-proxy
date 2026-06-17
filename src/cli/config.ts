@@ -219,9 +219,9 @@ const AOAI_DEFAULT_API_VERSION = "2025-04-01-preview";
 
 // Reasoning efforts ordered strongest → weakest. Whatever the Copilot
 // `/models` endpoint advertises as supported, we pick the first one that
-// appears in this list. Upstream also exposes `"max"` on newer Opus models,
-// but we deliberately cap at `xhigh` for now.
-const EFFORT_PRIORITY = ["xhigh", "high", "medium", "low", "minimal", "none"];
+// appears in this list. Newer Opus models advertise `"max"` above `xhigh`;
+// when a model supports it we use it, otherwise we fall through to xhigh.
+const EFFORT_PRIORITY = ["max", "xhigh", "high", "medium", "low", "minimal", "none"];
 
 /**
  * Pick the strongest reasoning effort from a `supported` array (as advertised
@@ -493,23 +493,10 @@ async function configClaude(baseUrl: string, outputPath?: string) {
   console.log(`\nUsing model: ${claudeDisplayName(selectedModel, modelList)}`);
 
   const claudeModel = claudeDisplayName(selectedModel, modelList);
-  const env = buildClaudeEnv(baseUrl, claudeModel);
 
-  for (const settingsPath of pathsToWrite) {
-    const dir = dirname(settingsPath);
-    mkdirSync(dir, { recursive: true });
-
-    let settings: any = {};
-    if (existsSync(settingsPath)) {
-      try {
-        settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-      } catch {}
-    }
-
-    const merged = mergeClaudeSettings(settings, env);
-
-    writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
-    console.log(`\n[Config] Written: ${settingsPath}`);
+  const written = writeClaudeConfig(baseUrl, claudeModel, pathsToWrite);
+  for (const p of written) {
+    console.log(`\n[Config] Written: ${p}`);
   }
 
   console.log(`\n  ANTHROPIC_BASE_URL=${baseUrl}`);
@@ -628,17 +615,9 @@ async function configCodex(baseUrl: string, outputPath?: string) {
     envHint = { name: aoaiOpts.envKey };
   }
 
-  for (const configPath of pathsToWrite) {
-    const dir = dirname(configPath);
-    mkdirSync(dir, { recursive: true });
-
-    let existing = "";
-    if (existsSync(configPath)) {
-      try { existing = readFileSync(configPath, "utf-8"); } catch {}
-    }
-    const merged = existing ? mergeCodexToml(existing, tomlContent) : tomlContent;
-    writeFileSync(configPath, merged, "utf-8");
-    console.log(`\n[Config] Written: ${configPath}`);
+  const written = writeCodexConfig(tomlContent, pathsToWrite);
+  for (const p of written) {
+    console.log(`\n[Config] Written: ${p}`);
   }
 
   if (mode === "proxy") {
@@ -737,31 +716,9 @@ async function configGemini(baseUrl: string, outputPath?: string): Promise<void>
 
   console.log(`\nUsing model: ${selectedModel}`);
 
-  const envVars = buildGeminiEnv(baseUrl, selectedModel);
-
-  for (const envFilePath of pathsToWrite) {
-    const dir = dirname(envFilePath);
-    mkdirSync(dir, { recursive: true });
-
-    let existingEnv = "";
-    if (existsSync(envFilePath)) {
-      try { existingEnv = readFileSync(envFilePath, "utf-8"); } catch {}
-    }
-    // Preserve existing GEMINI_API_KEY if present, otherwise use our placeholder.
-    const preserveKeys = new Set(["GEMINI_API_KEY"]);
-    const merged = mergeEnvFile(existingEnv, envVars, preserveKeys);
-    writeFileSync(envFilePath, merged, "utf-8");
-    console.log(`\n[Config] Written: ${envFilePath}`);
-
-    // Also write settings.json to skip auth prompt on first Gemini CLI launch.
-    const settingsPath = join(dir, "settings.json");
-    let existingSettings: any = {};
-    if (existsSync(settingsPath)) {
-      try { existingSettings = JSON.parse(readFileSync(settingsPath, "utf-8")); } catch {}
-    }
-    const mergedSettings = mergeGeminiSettings(existingSettings);
-    writeFileSync(settingsPath, JSON.stringify(mergedSettings, null, 2) + "\n", "utf-8");
-    console.log(`[Config] Written: ${settingsPath}`);
+  const written = writeGeminiConfig(baseUrl, selectedModel, pathsToWrite);
+  for (const p of written) {
+    console.log(`[Config] Written: ${p}`);
   }
 
   console.log(`\n  GOOGLE_GEMINI_BASE_URL=${baseUrl}`);
@@ -842,4 +799,112 @@ export function mergeGeminiSettings(existing: any): any {
     },
   };
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Non-interactive write helpers (shared by the CLI flows above and the web
+// portal). Each takes already-resolved inputs (model, target paths) and
+// performs the read→merge→write loop, returning the paths actually written.
+// No prompts, no console side effects — safe to call from an HTTP handler.
+// ---------------------------------------------------------------------------
+
+/** WSL + (optional) Windows target paths for a given client config file. */
+export interface ConfigTargets {
+  wsl: string;
+  win: string | null;
+}
+
+/**
+ * Resolve the standard WSL and Windows home paths for a client's config file.
+ * `segments` is the path under the home dir, e.g. [".claude", "settings.json"].
+ * `win` is null when no Windows home is detectable (non-WSL or tools missing).
+ */
+export function resolveConfigTargets(...segments: string[]): ConfigTargets {
+  const wsl = join(homedir(), ...segments);
+  const winHome = getWindowsHomePath();
+  const win = winHome ? join(winHome, ...segments) : null;
+  return { wsl, win };
+}
+
+/**
+ * Write Claude Code settings.json to each path, merging into any existing file
+ * so unrelated keys are preserved. Returns the paths written.
+ */
+export function writeClaudeConfig(
+  baseUrl: string,
+  claudeModel: string,
+  paths: string[],
+): string[] {
+  const env = buildClaudeEnv(baseUrl, claudeModel);
+  const written: string[] = [];
+  for (const settingsPath of paths) {
+    mkdirSync(dirname(settingsPath), { recursive: true });
+    let settings: any = {};
+    if (existsSync(settingsPath)) {
+      try { settings = JSON.parse(readFileSync(settingsPath, "utf-8")); } catch {}
+    }
+    const merged = mergeClaudeSettings(settings, env);
+    writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+    written.push(settingsPath);
+  }
+  return written;
+}
+
+/**
+ * Write a Codex config.toml (already built by buildCodexProxyToml /
+ * buildCodexAoaiToml) to each path, merging into any existing TOML. Returns the
+ * paths written.
+ */
+export function writeCodexConfig(tomlContent: string, paths: string[]): string[] {
+  const written: string[] = [];
+  for (const configPath of paths) {
+    mkdirSync(dirname(configPath), { recursive: true });
+    let existing = "";
+    if (existsSync(configPath)) {
+      try { existing = readFileSync(configPath, "utf-8"); } catch {}
+    }
+    const merged = existing ? mergeCodexToml(existing, tomlContent) : tomlContent;
+    writeFileSync(configPath, merged, "utf-8");
+    written.push(configPath);
+  }
+  return written;
+}
+
+/**
+ * Write Gemini CLI .env (+ companion settings.json to skip the auth prompt) to
+ * each path, preserving an existing GEMINI_API_KEY and unrelated lines/keys.
+ * Returns every file written (both .env and settings.json per location).
+ */
+export function writeGeminiConfig(
+  baseUrl: string,
+  model: string,
+  paths: string[],
+): string[] {
+  const envVars = buildGeminiEnv(baseUrl, model);
+  const preserveKeys = new Set(["GEMINI_API_KEY"]);
+  const written: string[] = [];
+  for (const envFilePath of paths) {
+    const dir = dirname(envFilePath);
+    mkdirSync(dir, { recursive: true });
+
+    let existingEnv = "";
+    if (existsSync(envFilePath)) {
+      try { existingEnv = readFileSync(envFilePath, "utf-8"); } catch {}
+    }
+    writeFileSync(envFilePath, mergeEnvFile(existingEnv, envVars, preserveKeys), "utf-8");
+    written.push(envFilePath);
+
+    const settingsPath = join(dir, "settings.json");
+    let existingSettings: any = {};
+    if (existsSync(settingsPath)) {
+      try { existingSettings = JSON.parse(readFileSync(settingsPath, "utf-8")); } catch {}
+    }
+    writeFileSync(
+      settingsPath,
+      JSON.stringify(mergeGeminiSettings(existingSettings), null, 2) + "\n",
+      "utf-8",
+    );
+    written.push(settingsPath);
+  }
+  return written;
 }

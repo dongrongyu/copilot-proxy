@@ -27,6 +27,7 @@ export function loadConfig(): Config {
     return {
       ...DEFAULT_CONFIG,
       ...userConfig,
+      effort: userConfig.effort ?? DEFAULT_CONFIG.effort,
       model_mappings: {
         exact: {
           ...DEFAULT_CONFIG.model_mappings.exact,
@@ -66,6 +67,15 @@ copilot_version: "0.26.7"
 
 # Connection retry settings
 max_connection_retries: 3
+
+# Reasoning Effort
+# Target thinking effort applied to every request whose model advertises a
+# reasoning_effort capability (e.g. claude-opus-4.6/4.7/4.8, claude-sonnet-4.6).
+# The proxy sends this value, clamped to the nearest effort the model actually
+# supports (e.g. "xhigh" becomes "max" on a model that lacks xhigh).
+# Options: "low", "medium", "high", "xhigh", "max"
+#   copilot-proxy effort high
+effort: high
 
 # Model Name Mappings
 # Translate incoming model names to Copilot API model names.
@@ -210,6 +220,45 @@ export function updateWebSearchConfig(updates: WebSearchUpdate): string {
   const configPath = getConfigPath();
   const text = readFileSync(configPath, "utf-8");
   const next = setWebSearchFields(text, updates);
+  if (next !== text) writeFileSync(configPath, next, "utf-8");
+  return configPath;
+}
+
+/**
+ * Update the top-level `effort:` scalar in a YAML document, preserving comments,
+ * key order, and any trailing inline comment on the line. Pure string transform
+ * (no js-yaml round-trip) so the hand-written template comments survive. If no
+ * `effort:` key exists, one is appended. Line-ending style (LF/CRLF) preserved.
+ */
+export function setEffortField(text: string, value: string): string {
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const lines = text.split(/\r?\n/);
+  const idx = lines.findIndex((l) => /^effort\s*:/.test(l));
+  const formatted = `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+
+  if (idx === -1) {
+    while (lines.length > 0 && lines[lines.length - 1]!.trim() === "") lines.pop();
+    return [...lines, "", "# Reasoning Effort", `effort: ${formatted}`].join(eol) + eol;
+  }
+
+  const m = lines[idx]!.match(/^(\s*effort\s*:\s*)(.*)$/);
+  if (m) {
+    const commentMatch = m[2]!.match(/\s+(#.*)$/);
+    const comment = commentMatch ? `        ${commentMatch[1]}` : "";
+    lines[idx] = `${m[1]}${formatted}${comment}`;
+  }
+  return lines.join(eol);
+}
+
+/**
+ * Read the config file (creating it from template if missing), set the `effort`
+ * field while preserving comments, and write it back. Returns the path.
+ */
+export function updateEffortConfig(value: string): string {
+  ensureConfigFile();
+  const configPath = getConfigPath();
+  const text = readFileSync(configPath, "utf-8");
+  const next = setEffortField(text, value);
   if (next !== text) writeFileSync(configPath, next, "utf-8");
   return configPath;
 }

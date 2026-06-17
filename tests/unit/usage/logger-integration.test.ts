@@ -22,10 +22,13 @@ describe("Usage Logger - Integration", () => {
       model: "ut-test-model",
       translated_model: "ut-test-translated",
       endpoint: "/v1/messages",
+      provider: "anthropic",
       input_tokens: 42,
       output_tokens: 13,
       cache_creation_input_tokens: 0,
       cache_read_input_tokens: 10,
+      reasoning_tokens: 0,
+      effort: "max",
       duration_ms: 100,
       status_code: 200,
       error: null,
@@ -41,6 +44,8 @@ describe("Usage Logger - Integration", () => {
     expect(found).toBeDefined();
     expect(found!.model).toBe("ut-test-model");
     expect(found!.input_tokens).toBe(42);
+    // effort persists round-trip through the JSONL log
+    expect(found!.effort).toBe("max");
   });
 
   test("logRequest with error field", () => {
@@ -84,5 +89,34 @@ describe("Usage Logger - Integration", () => {
   test("listLogDates returns array", () => {
     const dates = listLogDates();
     expect(Array.isArray(dates)).toBe(true);
+  });
+
+  test("by_day carries a real per-model cost (priced models contribute)", () => {
+    // claude-opus-4.8 is in the price table → this entry has nonzero cost.
+    const entry: RequestLogEntry = {
+      timestamp: new Date().toISOString(),
+      request_id: `ut-cost-${Date.now()}`,
+      model: "claude-opus-4.8",
+      translated_model: "claude-opus-4.8",
+      endpoint: "/v1/messages",
+      input_tokens: 1_000_000, // 1M input @ $5/M = $5
+      output_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+      duration_ms: 100,
+      status_code: 200,
+      error: null,
+    };
+    logRequest(entry);
+
+    const month = new Date().toISOString().slice(0, 7);
+    const today = new Date().toISOString().slice(0, 10);
+    const usage = readMonthlyUsage(month);
+    expect(usage).not.toBeNull();
+    const day = usage!.by_day[today];
+    expect(day).toBeDefined();
+    // cost field exists and reflects priced spend (≥ the $5 from this entry).
+    expect(typeof day!.cost).toBe("number");
+    expect(day!.cost).toBeGreaterThanOrEqual(5);
   });
 });

@@ -61,17 +61,19 @@ export async function usageCommand(opts: { month?: string }) {
   if (days.length > 0) {
     console.log(`\nBy Day:`);
     console.log(
-      `  ${"".padEnd(5)}  reqs |    in |    cc |    cr |   out |     r`
+      `  ${"".padEnd(5)}  reqs |    in |    cc |    cr |   out |     r |     cost`
     );
     for (const [day, d] of days.sort()) {
       const shortDay = day.slice(5); // MM-DD
+      const costCell = d.cost > 0 ? formatUsd(d.cost) : "-";
       console.log(
         `  ${shortDay} ${String(d.requests).padStart(5)} | ` +
           `${fmtTokens(d.input_tokens).padStart(5)} | ` +
           `${fmtTokens(d.cache_creation_input_tokens).padStart(5)} | ` +
           `${fmtTokens(d.cache_read_input_tokens).padStart(5)} | ` +
           `${fmtTokens(d.output_tokens).padStart(5)} | ` +
-          `${fmtTokens(d.reasoning_tokens).padStart(5)}`
+          `${fmtTokens(d.reasoning_tokens).padStart(5)} | ` +
+          `${costCell.padStart(8)}`
       );
     }
   }

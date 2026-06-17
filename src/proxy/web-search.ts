@@ -45,7 +45,7 @@ export function extractSearchQuery(payload: any): string {
   return "";
 }
 
-interface SearchResult {
+export interface SearchResult {
   title: string;
   url: string;
   content: string;
@@ -158,6 +158,34 @@ async function doSearch(query: string): Promise<SearchResult[]> {
     return searchWithWebiq(query, ws.webiq_api_key);
   }
   return searchWithSearxng(query, ws.searxng_url);
+}
+
+/**
+ * Run a one-off search using the currently-configured provider + key. Used by
+ * the portal's "Test search" button to verify the active provider works.
+ * Returns the raw provider results (empty array on error — errors are logged).
+ */
+export function runWebSearchProbe(query: string): Promise<SearchResult[]> {
+  return doSearch(query);
+}
+
+/**
+ * Run a one-off search against an EXPLICIT provider, without reading or mutating
+ * the global in-memory config's `provider` field. Used by the portal's "Test
+ * search" panel so it probes whichever provider the user has selected (and an
+ * optional unsaved key), independent of the live proxy's active provider. An
+ * empty/omitted `key` falls back to the saved key for that provider.
+ */
+export function runWebSearchProbeFor(
+  provider: string,
+  query: string,
+  key?: string,
+): Promise<SearchResult[]> {
+  const ws = getState().config.web_search;
+  const k = (key ?? "").trim();
+  if (provider === "tavily") return searchWithTavily(query, k || ws.tavily_api_key);
+  if (provider === "webiq") return searchWithWebiq(query, k || ws.webiq_api_key);
+  return searchWithSearxng(query, k || ws.searxng_url);
 }
 
 /**

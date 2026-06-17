@@ -11,6 +11,7 @@ Runs on Node.js ≥ 20 (or [Bun](https://bun.sh/) in development).
 - **Gemini-compatible**: `POST /v1beta/models/{model}:generateContent` / `:streamGenerateContent` / `:countTokens`, plus `GET /v1beta/models` for CLI preflight
 - **Format translation**: Anthropic ↔ OpenAI, Gemini ↔ OpenAI, and Responses ↔ Chat Completions for models that don't support `/v1/responses` natively (e.g. Claude via Copilot)
 - **Web search fallback** via Tavily or WebIQ — when a model rejects Anthropic's `web_search` tool, the proxy runs the query and injects synthetic `server_tool_use` / `web_search_tool_result` blocks (Anthropic `/v1/messages` only — i.e. Claude Code)
+- **Reasoning effort control** — set one target effort (`low`…`max`) for all thinking requests; the proxy clamps it to the nearest level each model supports. Tunable live via CLI or the web portal, no restart
 - **Vision passthrough** — image inputs are forwarded to vision-capable Copilot models
 - **GitHub Device Flow OAuth** — one-time login, tokens persisted locally
 - **Auto-refreshing Copilot token** — the short-lived upstream token is refreshed in the background
@@ -112,6 +113,20 @@ Supported providers:
 
 With web search disabled (the default) or no key set, `web_search` requests are passed through unchanged.
 
+### Reasoning effort (Claude Code only)
+
+Newer Claude models (opus 4.6/4.7/4.8, sonnet 4.6) accept a reasoning **effort** that controls how hard the model thinks. Claude Code itself does not expose this on the wire, so the proxy holds a single global target and applies it to every thinking request, **clamped to the nearest effort the model actually supports** (e.g. `xhigh` becomes `max` on a model whose ladder is `low/medium/high/max`).
+
+```bash
+copilot-proxy effort high        # set target effort (low | medium | high | xhigh | max)
+copilot-proxy effort max
+copilot-proxy effort status      # show the config-file value AND the running value
+```
+
+Default is `high`. Setting it via the CLI **applies instantly to the running proxy** (the command calls the proxy's API, which hot-reloads its in-memory value and persists to `config.yaml`) — no restart needed. The same control is available on the web portal's **Reasoning** page. If the proxy isn't running, the CLI just writes `config.yaml` and the value is picked up on next start.
+
+> **Scope**: effort is injected only on the Anthropic `/v1/messages` path (Claude Code) for models that advertise a `reasoning_effort` capability — currently `claude-opus-4.6/4.7/4.8` and `claude-sonnet-4.6`. Models without that capability (e.g. 4.5, haiku), non-thinking requests, and the OpenAI/Gemini endpoints are all left unchanged. The effort actually sent is recorded in the request logs (`copilot-proxy logs`).
+
 ---
 
 ## CLI reference
@@ -129,6 +144,8 @@ Commands:
         [-d <YYYY-MM-DD>]
   web-search use <tavily|webiq> [key]  configure web search fallback (Claude Code only)
             | on | off | status
+  effort <low|medium|high|xhigh|max>   set reasoning effort for thinking requests
+         | status                       (Claude Code only; applies live, no restart)
   service <install|uninstall|reinstall>
                                        manage the systemd user service (Linux/WSL)
 ```

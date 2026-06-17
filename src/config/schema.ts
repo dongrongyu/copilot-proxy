@@ -19,6 +19,13 @@ export interface Config {
   api_version: string;
   copilot_version: string;
   max_connection_retries: number;
+  /**
+   * Target reasoning effort applied to every thinking request, for models that
+   * advertise a `reasoning_effort` capability. The proxy injects this value
+   * (clamped to the nearest effort the model actually supports). Validation of
+   * allowed values lives in the application layer, not here.
+   */
+  effort: string;
   model_mappings: ModelMappingsConfig;
   web_search: WebSearchConfig;
 }
@@ -31,6 +38,7 @@ export const DEFAULT_CONFIG: Config = {
   api_version: "2025-04-01",
   copilot_version: "0.26.7",
   max_connection_retries: 3,
+  effort: "high",
   model_mappings: {
     exact: {},
     prefix: {},

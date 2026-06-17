@@ -123,6 +123,16 @@ describe("Config Utilities", () => {
       expect(toml).toContain(`model_reasoning_effort = "xhigh"`);
     });
 
+    test("prefers max when the model advertises it", () => {
+      const toml = buildCodexProxyToml("http://x", "claude-opus-4.8", [
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+      ]);
+      expect(toml).toContain(`model_reasoning_effort = "max"`);
+    });
+
     test("uses max effort from supported list (claude-opus-4.6 → high)", () => {
       const toml = buildCodexProxyToml("http://x", "claude-opus-4.6", [
         "low",
@@ -146,12 +156,12 @@ describe("Config Utilities", () => {
   });
 
   describe("pickMaxReasoningEffort", () => {
-    test("picks xhigh even when max is present (max is intentionally skipped)", () => {
+    test("picks max when present (strongest effort)", () => {
       expect(
         pickMaxReasoningEffort(["low", "medium", "high", "xhigh", "max"]),
-      ).toBe("xhigh");
+      ).toBe("max");
     });
-    test("picks xhigh when present", () => {
+    test("falls back to xhigh when max absent", () => {
       expect(pickMaxReasoningEffort(["low", "medium", "high", "xhigh"])).toBe(
         "xhigh",
       );
