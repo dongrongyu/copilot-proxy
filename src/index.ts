@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { readFileSync } from "fs";
 import { Command } from "commander";
 import { startServer } from "./cli/start";
 import { loginCommand } from "./cli/login";
@@ -9,23 +8,14 @@ import { logsCommand } from "./cli/logs";
 import { serviceCommand } from "./cli/service";
 import { webSearchCommand } from "./cli/web-search";
 import { effortCommand } from "./cli/effort";
-
-function cliVersion(): string {
-  try {
-    const text = readFileSync(new URL("../package.json", import.meta.url), "utf-8");
-    const parsed = JSON.parse(text) as { version?: string };
-    return parsed.version || "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
-}
+import { VERSION } from "./version";
 
 const program = new Command();
 
 program
   .name("copilot-proxy")
   .description("GitHub Copilot Model API Proxy — expose Copilot as OpenAI/Anthropic-compatible endpoints")
-  .version(cliVersion(), "-V, --version", "show version")
+  .version(VERSION, "-V, --version", "show version")
   .helpOption("-h, --help", "show help");
 
 program

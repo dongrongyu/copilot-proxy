@@ -21,6 +21,7 @@ import {
   writeGeminiConfig,
   type CodexAoaiOptions,
 } from "../cli/config";
+import { VERSION } from "../version";
 
 const KEY_PREVIEW_VISIBLE = 4;
 
@@ -88,6 +89,7 @@ export function dashboardData() {
 
   return {
     server: { address: config.address, port: config.port, online: true },
+    version: VERSION,
     token: { valid: tokenValid, expiresInMin },
     models: { total: data.length, anthropic: anthropicCount },
     requestsToday: { total: today.length, errors: errorsToday },
@@ -103,6 +105,7 @@ export function dashboardData() {
           input_tokens: month.totals.input_tokens,
           cache_read_input_tokens: month.totals.cache_read_input_tokens,
           output_tokens: month.totals.output_tokens,
+          cost: Object.values(month.by_day).reduce((sum, d) => sum + d.cost, 0),
         }
       : {
           month: monthStr(),
@@ -110,6 +113,7 @@ export function dashboardData() {
           input_tokens: 0,
           cache_read_input_tokens: 0,
           output_tokens: 0,
+          cost: 0,
         },
   };
 }

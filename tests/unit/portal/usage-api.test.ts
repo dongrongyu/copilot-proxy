@@ -1,9 +1,11 @@
-import { describe, expect, test, mock } from "bun:test";
+import { describe, expect, test, afterAll, spyOn, mock } from "bun:test";
 
 // usageData() aggregates whatever readMonthlyUsage() returns. We stub the logger
 // with an in-memory fixture so the assertions are deterministic and never touch
 // the real ~/.copilot-proxy logs. availableMonths() also calls listLogDates(),
-// so we stub that too. Keep every other logger export intact (spread realLogger).
+// so we stub that too. We use spyOn (NOT mock.module) so the stubs can be cleanly
+// reverted in afterAll — mock.module is process-global and cannot be restored,
+// which previously leaked these stubs into logger-integration.test.ts.
 import * as realLogger from "../../../src/usage/logger";
 
 const TODAY = "2026-06-15";
@@ -54,11 +56,11 @@ function fixtureMonth() {
   };
 }
 
-mock.module("../../../src/usage/logger", () => ({
-  ...realLogger,
-  listLogDates: () => [`${TODAY}.jsonl`.replace(".jsonl", "")],
-  readMonthlyUsage: (month: string) => (month === "2026-06" ? fixtureMonth() : null),
-}));
+spyOn(realLogger, "listLogDates").mockReturnValue([`${TODAY}.jsonl`.replace(".jsonl", "")]);
+spyOn(realLogger, "readMonthlyUsage").mockImplementation((month: string) =>
+  month === "2026-06" ? (fixtureMonth() as ReturnType<typeof realLogger.readMonthlyUsage>) : null,
+);
+afterAll(() => mock.restore());
 
 const { usageData } = await import("../../../src/portal/api");
 

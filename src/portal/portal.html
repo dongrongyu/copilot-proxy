@@ -348,11 +348,11 @@
       <div class="logo">CP</div>
       <div>
         <div class="name">Copilot Proxy</div>
-        <div class="ver">v0.1.22</div>
+        <div class="ver" id="appVersion">v…</div>
       </div>
     </div>
 
-    <div class="nav-item active" data-page="dashboard"><span class="ic">▦</span> Dashboard</div>
+    <div class="nav-item active" data-page="dashboard"><span class="ic">▦</span> Overview</div>
     <div class="nav-item" data-page="models"><span class="ic">◈</span> Models</div>
     <div class="nav-item" data-page="usage"><span class="ic">▭</span> Usage</div>
     <div class="nav-item" data-page="logs"><span class="ic">≣</span> Request Logs</div>
@@ -375,7 +375,7 @@
     <!-- ---------- Dashboard ---------- -->
     <section class="page active" id="dashboard">
       <div class="page-head">
-        <h1>Dashboard</h1>
+        <h1>Overview</h1>
         <p>Live state of the proxy running on this machine.</p>
       </div>
 
@@ -418,6 +418,7 @@
             <div class="k">Input tokens</div><div class="v" id="mInput">—</div>
             <div class="k">Cache read</div><div class="v" id="mCache">—</div>
             <div class="k">Output tokens</div><div class="v" id="mOutput">—</div>
+            <div class="k">Cost</div><div class="v" id="mCost">—</div>
           </div>
         </div>
       </div>
@@ -452,7 +453,14 @@
       </div>
       <div class="toolbar">
         <label class="field" style="margin:0">Month</label>
-        <select id="usageMonth"></select>
+        <div class="csel" id="usageMonthCsel" style="width:150px">
+          <button type="button" class="csel-btn" id="usageMonthBtn" aria-haspopup="listbox" aria-expanded="false">
+            <span class="csel-val placeholder">—</span>
+            <svg class="csel-chev" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2.75 4.5 6 7.75 9.25 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="csel-menu" id="usageMonthMenu" role="listbox" tabindex="-1"></div>
+          <select id="usageMonth" style="display:none" aria-hidden="true"></select>
+        </div>
         <span class="spacer"></span>
       </div>
 
@@ -754,6 +762,7 @@ $("themeToggle").onclick = () => { themeMode = themeMode === 'dark' ? 'light' : 
 async function loadDashboard(){
   try {
     const d = await getJSON('/api/portal/dashboard');
+    if (d.version) $("appVersion").textContent = "v" + d.version;
     $("dashServer").innerHTML = d.server.online
       ? '<span class="badge green"><span class="dot ok"></span> ONLINE</span>' : '<span class="badge red">OFFLINE</span>';
     $("dashServerSub").textContent = d.server.address + ":" + d.server.port;
@@ -776,6 +785,7 @@ async function loadDashboard(){
     $("mInput").textContent = fmtTokN(m.input_tokens);
     $("mCache").textContent = fmtTokN(m.cache_read_input_tokens);
     $("mOutput").textContent = fmtTokN(m.output_tokens);
+    $("mCost").textContent = fmtUsd(m.cost||0);
   } catch(err){ toast("Failed to load dashboard", true); }
 }
 
@@ -798,6 +808,7 @@ async function loadModels(){
 $("modelFilter").oninput = e => renderModels(e.target.value);
 
 // ---------- usage ----------
+let monthCsel=null;
 async function loadUsage(){
   const month = $("usageMonth").value || "";
   try {
@@ -807,6 +818,7 @@ async function loadUsage(){
       const cur = $("usageMonth").value;
       $("usageMonth").innerHTML = d.available.map(mo=>'<option'+(mo===d.month?' selected':'')+'>'+mo+'</option>').join("");
       if (cur && d.available.includes(cur)) $("usageMonth").value = cur;
+      if (monthCsel) monthCsel.sync();
     }
     if (d.empty) {
       $("uReqs").textContent="0"; $("uInput").textContent="0"; $("uCache").textContent="0"; $("uOutput").textContent="0";
@@ -837,6 +849,7 @@ async function loadUsage(){
   } catch(err){ toast("Failed to load usage", true); }
 }
 $("usageMonth").onchange = loadUsage;
+monthCsel = makeCSelect("usageMonthCsel", "usageMonthBtn", "usageMonthMenu", "usageMonth", { placeholder:"—", onChange: loadUsage });
 
 // Dual-axis combo: stacked token bars (left axis) + cost line (right axis).
 function renderDayChart(days){
@@ -1065,6 +1078,7 @@ document.querySelectorAll('#effortSeg button').forEach(b=>b.onclick=async()=>{
 // ---------- setup ----------
 const SETUP_LABEL = { claude:"Claude Code", codex:"Codex", gemini:"Gemini" };
 let setupTarget="claude", setupWhere="both", codexMode="proxy", SETUP_STATE=null;
+let modelCsel=null;
 window.__setupSeq = 0;
 function setupOpts(){
   const o = { target:setupTarget, model:$("setupModel").value||undefined, where:setupWhere };
@@ -1095,7 +1109,7 @@ async function refreshSetupPreview(){
       sel.innerHTML=(d.models||[]).map(m=>'<option value="'+esc(m.id)+'">'+esc(m.display)+'</option>').join("");
       if (d.selectedModel) sel.value=d.selectedModel;
     }
-    syncModelCsel();
+    modelCsel.sync();
     // location hint + availability of "Windows only"
     const win=d.locations.win;
     $("locationHint").textContent = win ? ("WSL: "+d.locations.wsl) : ("WSL only (no Windows home detected)");
@@ -1107,68 +1121,73 @@ async function refreshSetupPreview(){
     $("applyCfg").disabled = false;
   } catch(err){ toast("Failed to load setup", true); }
 }
-// Custom themed model picker. The hidden <select id="setupModel"> stays the
-// value source-of-truth (setupOpts/refresh logic read it); this mirrors its
-// options into a div-based listbox and writes the chosen value back.
-let cselOpen=false, cselActive=-1;
-function syncModelCsel(){
-  const sel=$("setupModel"), menu=$("setupModelMenu"), valEl=$("setupModelBtn").querySelector(".csel-val");
-  const opts=Array.from(sel.options);
-  const cur=sel.value;
-  menu.innerHTML=opts.map((o,i)=>
-    '<div class="csel-opt'+(o.value===cur?' sel':'')+'" role="option" data-i="'+i+'" data-val="'+esc(o.value)+'" aria-selected="'+(o.value===cur)+'">'+
-    '<span class="csel-tick">✓</span><span>'+esc(o.textContent)+'</span></div>').join("");
-  const selOpt=opts.find(o=>o.value===cur);
-  if (selOpt){ valEl.textContent=selOpt.textContent; valEl.classList.remove("placeholder"); }
-  else { valEl.textContent="Select…"; valEl.classList.add("placeholder"); }
-  menu.querySelectorAll(".csel-opt").forEach(el=>{
-    el.onclick=()=>{ chooseModelCsel(el.dataset.val); };
-    el.onmouseenter=()=>{ setCselActive(parseInt(el.dataset.i,10)); };
-  });
-}
-function setCselActive(i){
-  cselActive=i;
-  $("setupModelMenu").querySelectorAll(".csel-opt").forEach(el=>el.classList.toggle("active", parseInt(el.dataset.i,10)===i));
-}
-function openModelCsel(){
-  const sel=$("setupModel"); if(!sel.options.length) return;
-  cselOpen=true; $("setupModelCsel").classList.add("open"); $("setupModelBtn").setAttribute("aria-expanded","true");
-  const cur=sel.selectedIndex>=0?sel.selectedIndex:0; setCselActive(cur);
-  const act=$("setupModelMenu").querySelector('.csel-opt[data-i="'+cur+'"]'); if(act) act.scrollIntoView({block:"nearest"});
-}
-function closeModelCsel(){ cselOpen=false; $("setupModelCsel").classList.remove("open"); $("setupModelBtn").setAttribute("aria-expanded","false"); }
-function chooseModelCsel(val){
-  const sel=$("setupModel"); if(sel.value!==val){ sel.value=val; syncModelCsel(); refreshSetupPreview(); }
-  else syncModelCsel();
-  closeModelCsel(); $("setupModelBtn").focus();
-}
-function initModelCsel(){
-  const btn=$("setupModelBtn"), menu=$("setupModelMenu");
-  btn.onclick=(e)=>{ e.stopPropagation(); cselOpen?closeModelCsel():openModelCsel(); };
+// Reusable themed select. Native <option> popups can't be themed, so a hidden
+// <select> stays the value source-of-truth while a div-based listbox mirrors its
+// options and writes the chosen value back. Used by both the Client Setup model
+// picker and the Usage month picker so they look and behave identically.
+function makeCSelect(rootId, btnId, menuId, selectId, opts){
+  opts = opts || {};
+  const placeholder = opts.placeholder || "Select…";
+  const onChange = opts.onChange || function(){};
+  const root=$(rootId), btn=$(btnId), menu=$(menuId), sel=$(selectId);
+  const valEl=btn.querySelector(".csel-val");
+  let open=false, active=-1;
+  function sync(){
+    const optsArr=Array.from(sel.options);
+    const cur=sel.value;
+    menu.innerHTML=optsArr.map((o,i)=>
+      '<div class="csel-opt'+(o.value===cur?' sel':'')+'" role="option" data-i="'+i+'" data-val="'+esc(o.value)+'" aria-selected="'+(o.value===cur)+'">'+
+      '<span class="csel-tick">✓</span><span>'+esc(o.textContent)+'</span></div>').join("");
+    const selOpt=optsArr.find(o=>o.value===cur);
+    if (selOpt){ valEl.textContent=selOpt.textContent; valEl.classList.remove("placeholder"); }
+    else { valEl.textContent=placeholder; valEl.classList.add("placeholder"); }
+    menu.querySelectorAll(".csel-opt").forEach(el=>{
+      el.onclick=()=>{ choose(el.dataset.val); };
+      el.onmouseenter=()=>{ setActive(parseInt(el.dataset.i,10)); };
+    });
+  }
+  function setActive(i){
+    active=i;
+    menu.querySelectorAll(".csel-opt").forEach(el=>el.classList.toggle("active", parseInt(el.dataset.i,10)===i));
+  }
+  function openMenu(){
+    if(!sel.options.length) return;
+    open=true; root.classList.add("open"); btn.setAttribute("aria-expanded","true");
+    const cur=sel.selectedIndex>=0?sel.selectedIndex:0; setActive(cur);
+    const act=menu.querySelector('.csel-opt[data-i="'+cur+'"]'); if(act) act.scrollIntoView({block:"nearest"});
+  }
+  function closeMenu(){ open=false; root.classList.remove("open"); btn.setAttribute("aria-expanded","false"); }
+  function choose(val){
+    if(sel.value!==val){ sel.value=val; sync(); onChange(val); }
+    else sync();
+    closeMenu(); btn.focus();
+  }
+  function move(dir){
+    const n=sel.options.length; if(!n) return;
+    let i=active<0?0:active+dir; if(i<0)i=0; if(i>=n)i=n-1;
+    setActive(i);
+    const el=menu.querySelector('.csel-opt[data-i="'+i+'"]'); if(el) el.scrollIntoView({block:"nearest"});
+  }
+  btn.onclick=(e)=>{ e.stopPropagation(); open?closeMenu():openMenu(); };
   btn.onkeydown=(e)=>{
-    if(e.key==="ArrowDown"){ e.preventDefault(); if(!cselOpen) openModelCsel(); else moveCsel(1); }
-    else if(e.key==="ArrowUp"){ e.preventDefault(); if(!cselOpen) openModelCsel(); else moveCsel(-1); }
+    if(e.key==="ArrowDown"){ e.preventDefault(); if(!open) openMenu(); else move(1); }
+    else if(e.key==="ArrowUp"){ e.preventDefault(); if(!open) openMenu(); else move(-1); }
     else if(e.key==="Enter"||e.key===" "){
       e.preventDefault();
-      if(!cselOpen){ openModelCsel(); return; }
-      const el=menu.querySelector('.csel-opt[data-i="'+cselActive+'"]');
-      if(el) chooseModelCsel(el.dataset.val); else closeModelCsel();
+      if(!open){ openMenu(); return; }
+      const el=menu.querySelector('.csel-opt[data-i="'+active+'"]');
+      if(el) choose(el.dataset.val); else closeMenu();
     }
-    else if(e.key==="Escape"){ closeModelCsel(); }
+    else if(e.key==="Escape"){ closeMenu(); }
   };
   menu.onkeydown=(e)=>{
-    if(e.key==="ArrowDown"){ e.preventDefault(); moveCsel(1); }
-    else if(e.key==="ArrowUp"){ e.preventDefault(); moveCsel(-1); }
-    else if(e.key==="Enter"){ e.preventDefault(); const el=menu.querySelector('.csel-opt[data-i="'+cselActive+'"]'); if(el) chooseModelCsel(el.dataset.val); }
-    else if(e.key==="Escape"){ e.preventDefault(); closeModelCsel(); btn.focus(); }
+    if(e.key==="ArrowDown"){ e.preventDefault(); move(1); }
+    else if(e.key==="ArrowUp"){ e.preventDefault(); move(-1); }
+    else if(e.key==="Enter"){ e.preventDefault(); const el=menu.querySelector('.csel-opt[data-i="'+active+'"]'); if(el) choose(el.dataset.val); }
+    else if(e.key==="Escape"){ e.preventDefault(); closeMenu(); btn.focus(); }
   };
-  document.addEventListener("click",(e)=>{ if(cselOpen && !$("setupModelCsel").contains(e.target)) closeModelCsel(); });
-}
-function moveCsel(dir){
-  const n=$("setupModel").options.length; if(!n) return;
-  let i=cselActive<0?0:cselActive+dir; if(i<0)i=0; if(i>=n)i=n-1;
-  setCselActive(i);
-  const el=$("setupModelMenu").querySelector('.csel-opt[data-i="'+i+'"]'); if(el) el.scrollIntoView({block:"nearest"});
+  document.addEventListener("click",(e)=>{ if(open && !root.contains(e.target)) closeMenu(); });
+  return { sync, close: closeMenu };
 }
 function syncCodexVisibility(){
   $("codexModeField").style.display = setupTarget==="codex" ? "" : "none";
@@ -1191,7 +1210,7 @@ function initSetup(){
     b.classList.add('on'); codexMode=b.dataset.m; syncCodexVisibility(); refreshSetupPreview();
   });
   $("setupModel").onchange = refreshSetupPreview;
-  initModelCsel();
+  modelCsel = makeCSelect("setupModelCsel", "setupModelBtn", "setupModelMenu", "setupModel", { placeholder:"Select…", onChange: refreshSetupPreview });
   ["aoaiBaseUrl","aoaiModel","aoaiEnvKey"].forEach(id=>$(id).oninput = ()=>{ clearTimeout(window.__aoaiT); window.__aoaiT=setTimeout(refreshSetupPreview,300); });
   $("copyCfg").onclick=()=>{ navigator.clipboard?.writeText($("setupCode").textContent); toast("Copied to clipboard"); };
   $("applyCfg").onclick=async()=>{

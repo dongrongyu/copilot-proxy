@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, mock } from "bun:test";
+import { describe, expect, test, beforeEach, afterAll, spyOn, mock } from "bun:test";
 import { initState, getState } from "../../../src/auth/state";
 import { DEFAULT_CONFIG } from "../../../src/config/schema";
 import * as realLoader from "../../../src/config/loader";
@@ -6,18 +6,19 @@ import * as realLoader from "../../../src/config/loader";
 // applyEffort/effortData touch the real ~/.copilot-proxy/config.yaml through
 // loadConfig/updateEffortConfig (resolved via os.homedir(), which bun caches at
 // process start so a runtime HOME override does NOT redirect it). To exercise
-// the orchestration logic WITHOUT touching the user's real config, we keep every
-// real loader export EXCEPT the two that read/write disk, which we replace with
-// an in-memory store.
+// the orchestration logic WITHOUT touching the user's real config, we replace the
+// two disk-touching loader exports with an in-memory store. We use spyOn (NOT
+// mock.module) so the stubs revert cleanly in afterAll — mock.module is
+// process-global and unrestorable, which previously leaked stubs across files.
 let diskEffort = "high";
-mock.module("../../../src/config/loader", () => ({
-  ...realLoader,
-  loadConfig: () => ({ ...DEFAULT_CONFIG, effort: diskEffort }),
-  updateEffortConfig: (value: string) => {
-    diskEffort = value;
-    return "/tmp/fake-config.yaml";
-  },
-}));
+spyOn(realLoader, "loadConfig").mockImplementation(
+  () => ({ ...DEFAULT_CONFIG, effort: diskEffort }) as ReturnType<typeof realLoader.loadConfig>,
+);
+spyOn(realLoader, "updateEffortConfig").mockImplementation((value: string) => {
+  diskEffort = value;
+  return "/tmp/fake-config.yaml";
+});
+afterAll(() => mock.restore());
 
 const { effortData, applyEffort } = await import("../../../src/portal/api");
 

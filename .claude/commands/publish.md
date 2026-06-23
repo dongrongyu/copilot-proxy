@@ -23,10 +23,14 @@ to origin.
    - Then confirm the version bump (current -> new) with the user.
 
 2. **Bump the version (release commit — its own commit)**
-   - Edit `package.json` to update the `version` field.
-   - ALSO update any source file that hardcodes the version. Find them
-     with: `grep -rn "<old-version>" src/ package.json`. As of 0.1.11
-     the only hardcoded ref is `src/index.ts` (`.version("0.1.11", ...)`).
+   - Edit `package.json` to update the `version` field. This is the SINGLE
+     source of truth. At build time the `build` script passes it to
+     `bun build --define __APP_VERSION__="$npm_package_version"`, which
+     inlines it as a compile-time literal that `src/version.ts` exposes as
+     `VERSION` (the CLI and config portal both read that). Runtime code
+     never imports `package.json`, so no source file hardcodes the version.
+   - Sanity-check there are no stray hardcoded copies with:
+     `grep -rn "<old-version>" src/` — it should return nothing.
    - Do NOT use `npm version` — it auto-creates its own commit/tag and
      uses a non-standard message.
    - Stage ONLY the version-bump files (`package.json` + any updated

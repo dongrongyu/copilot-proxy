@@ -1,19 +1,20 @@
-import { describe, expect, test, beforeAll, afterAll, beforeEach, mock } from "bun:test";
+import { describe, expect, test, beforeAll, afterAll, beforeEach, spyOn, mock } from "bun:test";
 import { serve, type Server } from "bun";
 import { DEFAULT_CONFIG } from "../../../src/config/schema";
 import * as realLoader from "../../../src/config/loader";
 
 // fetchLiveEffort/pushLiveEffort derive the proxy URL from loadConfig().address
 // /port and call /api/portal/effort. We stub loadConfig so the helpers point at
-// a throwaway local server (never the real proxy or real config file).
+// a throwaway local server (never the real proxy or real config file). We use
+// spyOn (NOT mock.module) so the stub reverts cleanly in afterAll — mock.module
+// is process-global and unrestorable, which previously leaked stubs across files.
 let testPort = 0;
 let lastPosted: string | null = null;
 let postShouldFail = false;
 
-mock.module("../../../src/config/loader", () => ({
-  ...realLoader,
-  loadConfig: () => ({ ...DEFAULT_CONFIG, address: "127.0.0.1", port: testPort }),
-}));
+spyOn(realLoader, "loadConfig").mockImplementation(
+  () => ({ ...DEFAULT_CONFIG, address: "127.0.0.1", port: testPort }) as ReturnType<typeof realLoader.loadConfig>,
+);
 
 const { fetchLiveEffort, pushLiveEffort } = await import("../../../src/cli/effort");
 
@@ -88,3 +89,7 @@ describe("cli effort fallback when proxy is unreachable", () => {
     expect(await pushLiveEffort("high")).toBe(false);
   });
 });
+
+// Revert the loadConfig spy only after every describe in this file has run, so
+// the stub stays active for the fallback suite too.
+afterAll(() => mock.restore());
