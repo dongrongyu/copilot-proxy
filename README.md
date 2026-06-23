@@ -113,9 +113,9 @@ Supported providers:
 
 With web search disabled (the default) or no key set, `web_search` requests are passed through unchanged.
 
-### Reasoning effort (Claude Code only)
+### Reasoning effort
 
-Newer Claude models (opus 4.6/4.7/4.8, sonnet 4.6) accept a reasoning **effort** that controls how hard the model thinks. Claude Code itself does not expose this on the wire, so the proxy holds a single global target and applies it to every thinking request, **clamped to the nearest effort the model actually supports** (e.g. `xhigh` becomes `max` on a model whose ladder is `low/medium/high/max`).
+Reasoning-capable models accept an **effort** that controls how hard the model thinks. The proxy holds a single global target and applies it, **clamped to the nearest effort the selected model actually supports** (e.g. `xhigh` becomes `max` on a model whose ladder is `low/medium/high/max`).
 
 ```bash
 copilot-proxy effort high        # set target effort (low | medium | high | xhigh | max)
@@ -125,7 +125,11 @@ copilot-proxy effort status      # show the config-file value AND the running va
 
 Default is `high`. Setting it via the CLI **applies instantly to the running proxy** (the command calls the proxy's API, which hot-reloads its in-memory value and persists to `config.yaml`) — no restart needed. The same control is available on the web portal's **Reasoning** page. If the proxy isn't running, the CLI just writes `config.yaml` and the value is picked up on next start.
 
-> **Scope**: effort is injected only on the Anthropic `/v1/messages` path (Claude Code) for models that advertise a `reasoning_effort` capability — currently `claude-opus-4.6/4.7/4.8` and `claude-sonnet-4.6`. Models without that capability (e.g. 4.5, haiku), non-thinking requests, and the OpenAI/Gemini endpoints are all left unchanged. The effort actually sent is recorded in the request logs (`copilot-proxy logs`).
+> **Scope**: effort is injected for models that advertise a `reasoning_effort` capability on:
+> - the Anthropic `/v1/messages` path for thinking requests (Claude Code), and
+> - the OpenAI `/v1/responses` path when the request already carries a `reasoning` object **and the selected Copilot model supports the Responses API** (for example Codex / GPT-5.x).
+>
+> Models without that capability (e.g. Claude 4.5 / Haiku), requests with no thinking/reasoning section, Gemini endpoints, and `/v1/responses` requests that must fall back to `/chat/completions` are left unchanged. On the direct `/v1/responses` path, a caller-provided `reasoning.effort` is preserved (and clamped if needed); otherwise the proxy's configured effort is used as the default. The effort actually sent is recorded in the request logs (`copilot-proxy logs`).
 
 ---
 
@@ -144,8 +148,8 @@ Commands:
         [-d <YYYY-MM-DD>]
   web-search use <tavily|webiq> [key]  configure web search fallback (Claude Code only)
             | on | off | status
-  effort <low|medium|high|xhigh|max>   set reasoning effort for thinking requests
-         | status                       (Claude Code only; applies live, no restart)
+  effort <low|medium|high|xhigh|max>   set reasoning effort for supported requests
+         | status                       (applies live, no restart)
   service <install|uninstall|reinstall>
                                        manage the systemd user service (Linux/WSL)
 ```

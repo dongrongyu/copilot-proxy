@@ -63,11 +63,11 @@ async function printStatus(): Promise<void> {
   } else {
     console.log(`  effort (running):     (proxy not reachable on ${proxyBaseUrl()})`);
   }
-  console.log(`\n  Applied to thinking requests on the Anthropic /v1/messages path`);
-  console.log(`  (Claude Code) for models that support reasoning_effort — currently`);
-  console.log(`  claude-opus-4.6/4.7/4.8 and claude-sonnet-4.6. The value is clamped`);
-  console.log(`  to the nearest effort each model supports. Other models (and the`);
-  console.log(`  OpenAI/Gemini paths) are unaffected.`);
+  console.log(`\n  Applied to reasoning-capable models on:`);
+  console.log(`  - Anthropic /v1/messages thinking requests (Claude Code)`);
+  console.log(`  - OpenAI /v1/responses requests that already include a reasoning object`);
+  console.log(`    and stay on the direct Responses path (for example GPT-5.x)`);
+  console.log(`  The target is clamped to the nearest effort each model supports.`);
   console.log(`\n  config: ${getConfigPath()}`);
 }
 

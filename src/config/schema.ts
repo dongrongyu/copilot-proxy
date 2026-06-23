@@ -20,7 +20,7 @@ export interface Config {
   copilot_version: string;
   max_connection_retries: number;
   /**
-   * Target reasoning effort applied to every thinking request, for models that
+   * Target reasoning effort applied to supported requests, for models that
    * advertise a `reasoning_effort` capability. The proxy injects this value
    * (clamped to the nearest effort the model actually supports). Validation of
    * allowed values lives in the application layer, not here.

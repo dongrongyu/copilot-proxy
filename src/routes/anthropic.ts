@@ -23,6 +23,9 @@ import {
   removeOrphanedToolResults,
 } from "../proxy/request";
 import {
+  configuredEffortForModel,
+} from "../proxy/reasoning-effort";
+import {
   hasWebSearchTool,
   isWebSearchUnsupportedError,
   applyWebSearchFallback,
@@ -106,46 +109,7 @@ function adjustThinkingForModel(payload: any, model: string): any {
   result.output_config = { ...(payload.output_config ?? {}), effort };
   return result;
 }
-
-// Reasoning efforts ordered weakest → strongest. Used to find the nearest
-// supported effort when the configured target isn't in a model's ladder.
-const EFFORT_LADDER = ["low", "medium", "high", "xhigh", "max"];
-
-/**
- * Snap a target reasoning effort to the nearest value a model actually supports.
- *
- * Pure function (no I/O) so it can be unit-tested directly. Given the target and
- * the model's supported-efforts ladder, returns:
- *   - the target itself if supported; else
- *   - the NEAREST stronger supported effort (searching "up"); else
- *   - the nearest weaker one (searching "down"); else
- *   - "" when `supported` is empty.
- * For an unknown target (not on the canonical ladder) it returns the strongest
- * supported effort, so a typo in config still yields a sensible value.
- *
- * Example: clampEffortToSupported("xhigh", ["low","medium","high","max"]) → "max".
- */
-export function clampEffortToSupported(target: string, supported: string[]): string {
-  if (!supported || supported.length === 0) return "";
-  if (supported.includes(target)) return target;
-
-  const targetIdx = EFFORT_LADDER.indexOf(target);
-  if (targetIdx === -1) {
-    for (let i = EFFORT_LADDER.length - 1; i >= 0; i--) {
-      if (supported.includes(EFFORT_LADDER[i]!)) return EFFORT_LADDER[i]!;
-    }
-    return "";
-  }
-
-  // Prefer the nearest STRONGER effort (up), then fall back to weaker (down).
-  for (let i = targetIdx + 1; i < EFFORT_LADDER.length; i++) {
-    if (supported.includes(EFFORT_LADDER[i]!)) return EFFORT_LADDER[i]!;
-  }
-  for (let i = targetIdx - 1; i >= 0; i--) {
-    if (supported.includes(EFFORT_LADDER[i]!)) return EFFORT_LADDER[i]!;
-  }
-  return "";
-}
+export { clampEffortToSupported } from "../proxy/reasoning-effort";
 
 /**
  * Resolve the reasoning effort to send (and log) for a (payload, model) pair.
@@ -159,26 +123,10 @@ export function clampEffortToSupported(target: string, supported: string[]): str
  * This is the single source of truth: both the wire value (adjustThinkingForModel)
  * and the logged value go through here, so they can never diverge.
  */
-/**
- * The model's supported reasoning efforts, as advertised by the Copilot
- * `/models` catalog. Empty array when the model has no such capability.
- */
-function supportedEffortsFor(model: string): string[] {
-  const state = getState();
-  const entry = state.models?.data?.find((m: any) => m.id === model);
-  const supported: string[] | undefined = (entry as any)?.capabilities?.supports?.reasoning_effort;
-  return supported ?? [];
-}
-
 function resolveEffort(payload: any, model: string): string {
   const tType = payload?.thinking?.type;
   if (tType !== "enabled" && tType !== "adaptive") return "";
-
-  const supported = supportedEffortsFor(model);
-  if (supported.length === 0) return "";
-
-  const target = (getState().config.effort || "high").toLowerCase();
-  return clampEffortToSupported(target, supported);
+  return configuredEffortForModel(model);
 }
 
 function makeLogEntry(

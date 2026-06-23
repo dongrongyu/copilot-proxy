@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from "fs";
 import { Command } from "commander";
 import { startServer } from "./cli/start";
 import { loginCommand } from "./cli/login";
@@ -9,12 +10,22 @@ import { serviceCommand } from "./cli/service";
 import { webSearchCommand } from "./cli/web-search";
 import { effortCommand } from "./cli/effort";
 
+function cliVersion(): string {
+  try {
+    const text = readFileSync(new URL("../package.json", import.meta.url), "utf-8");
+    const parsed = JSON.parse(text) as { version?: string };
+    return parsed.version || "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
 const program = new Command();
 
 program
   .name("copilot-proxy")
   .description("GitHub Copilot Model API Proxy — expose Copilot as OpenAI/Anthropic-compatible endpoints")
-  .version("0.1.22", "-V, --version", "show version")
+  .version(cliVersion(), "-V, --version", "show version")
   .helpOption("-h, --help", "show help");
 
 program
@@ -68,7 +79,7 @@ program
 
 program
   .command("effort [value]")
-  .description("set reasoning effort for thinking requests: low | medium | high | xhigh | max | status")
+  .description("set reasoning effort for supported requests: low | medium | high | xhigh | max | status")
   .action((value) => effortCommand(value));
 
 program.addHelpText("after", `

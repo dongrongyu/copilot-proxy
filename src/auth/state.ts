@@ -14,6 +14,7 @@ export interface CopilotModel {
     supports?: {
       vision?: boolean;
       tool_calls?: boolean;
+      reasoning_effort?: string[];
     };
   };
   supported_endpoints?: string[];

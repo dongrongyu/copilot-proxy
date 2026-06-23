@@ -35,9 +35,7 @@ export interface RequestLogEntry {
   reasoning_tokens: number;
   /**
    * Reasoning effort actually sent upstream (e.g. "max", "xhigh", "high").
-   * Empty string when the request did not carry adaptive thinking (non-thinking
-   * requests, non-Anthropic providers, or models without a reasoning_effort
-   * capability).
+   * Empty string when the request did not carry a forwarded effort parameter.
    */
   effort: string;
   duration_ms: number;

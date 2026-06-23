@@ -1,17 +1,32 @@
 import { describe, expect, test } from "bun:test";
 import yaml from "js-yaml";
-import { clampEffortToSupported } from "../../../src/routes/anthropic";
+import { getState, initState } from "../../../src/auth/state";
+import { DEFAULT_CONFIG } from "../../../src/config/schema";
 import {
   setEffortField,
   DEFAULT_CONFIG_TEMPLATE,
   loadConfig,
 } from "../../../src/config/loader";
+import {
+  adjustResponsesReasoningForModel,
+  clampEffortToSupported,
+} from "../../../src/proxy/reasoning-effort";
 
 // Effort ladders advertised by the live Copilot catalog (verified empirically):
 //   opus-4.6 / sonnet-4.6:  low, medium, high,        max   (no xhigh)
 //   opus-4.7 / opus-4.8:    low, medium, high, xhigh, max
 const LADDER_46 = ["low", "medium", "high", "max"];
 const LADDER_48 = ["low", "medium", "high", "xhigh", "max"];
+const GPT_55_LADDER = ["low", "medium", "high", "xhigh"];
+const GPT_55 = {
+  id: "gpt-5.5",
+  capabilities: { supports: { reasoning_effort: GPT_55_LADDER } },
+};
+
+function initEffortState(effort: string): void {
+  initState({ ...DEFAULT_CONFIG, effort });
+  getState().models = { data: [GPT_55] };
+}
 
 describe("clampEffortToSupported", () => {
   test("returns the target unchanged when the model supports it", () => {
@@ -98,5 +113,47 @@ describe("loadConfig effort defaults", () => {
     const cfg = loadConfig();
     expect(typeof cfg.effort).toBe("string");
     expect(cfg.effort.length).toBeGreaterThan(0);
+  });
+});
+
+describe("adjustResponsesReasoningForModel", () => {
+  test("injects configured effort for reasoning-capable OpenAI responses models", () => {
+    initEffortState("max");
+
+    const payload = { model: "gpt-5.5", reasoning: { summary: "none" } };
+    const adjusted = adjustResponsesReasoningForModel(payload, "gpt-5.5");
+
+    expect(adjusted.effort).toBe("xhigh");
+    expect(adjusted.payload.reasoning).toEqual({ summary: "none", effort: "xhigh" });
+  });
+
+  test("preserves a caller-provided reasoning.effort when present", () => {
+    initEffortState("medium");
+
+    const payload = { model: "gpt-5.5", reasoning: { effort: "xhigh", summary: "none" } };
+    const adjusted = adjustResponsesReasoningForModel(payload, "gpt-5.5");
+
+    expect(adjusted.effort).toBe("xhigh");
+    expect(adjusted.payload.reasoning).toEqual({ effort: "xhigh", summary: "none" });
+  });
+
+  test("clamps a caller-provided reasoning.effort to the supported ladder", () => {
+    initEffortState("low");
+
+    const payload = { model: "gpt-5.5", reasoning: { effort: "max", summary: "none" } };
+    const adjusted = adjustResponsesReasoningForModel(payload, "gpt-5.5");
+
+    expect(adjusted.effort).toBe("xhigh");
+    expect(adjusted.payload.reasoning).toEqual({ effort: "xhigh", summary: "none" });
+  });
+
+  test("leaves responses payload untouched when no reasoning object is present", () => {
+    initEffortState("max");
+
+    const payload = { model: "gpt-5.5", input: "hello" };
+    const adjusted = adjustResponsesReasoningForModel(payload, "gpt-5.5");
+
+    expect(adjusted.effort).toBe("");
+    expect(adjusted.payload).toBe(payload);
   });
 });

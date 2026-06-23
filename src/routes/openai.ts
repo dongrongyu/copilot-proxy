@@ -7,6 +7,7 @@ import { ensureCopilotToken, getCopilotBaseUrl, supportsResponsesApi } from "../
 import { getCopilotHeaders, hasVisionContent, isAgentCall } from "../proxy/headers";
 import { translateModelName } from "../proxy/model-mapping";
 import { fetchUpstream } from "../proxy/request";
+import { adjustResponsesReasoningForModel } from "../proxy/reasoning-effort";
 import { logRequest, type RequestLogEntry } from "../usage/logger";
 import {
   translateResponsesToChat,
@@ -20,7 +21,7 @@ const openaiRouter = new Hono();
 
 function makeLogEntry(
   requestId: string, originalModel: string, translatedModel: string,
-  endpoint: string, startTime: number
+  endpoint: string, startTime: number, effort = ""
 ): Partial<RequestLogEntry> {
   return {
     timestamp: new Date().toISOString(),
@@ -32,7 +33,7 @@ function makeLogEntry(
     input_tokens: 0, output_tokens: 0,
     cache_creation_input_tokens: 0, cache_read_input_tokens: 0,
     reasoning_tokens: 0,
-    effort: "",
+    effort,
     duration_ms: 0, status_code: 200, error: null,
   };
 }
@@ -182,18 +183,29 @@ openaiRouter.post("/v1/responses", async (c) => {
   // If the model doesn't support /v1/responses, translate to /chat/completions
   // and re-translate the response back to Responses format.
   if (!supportsResponsesApi(translatedModel)) {
-    return await handleResponsesViaChat(c, payload, originalModel, translatedModel, requestId, startTime);
+    return await handleResponsesViaChat(
+      c,
+      payload,
+      originalModel,
+      translatedModel,
+      requestId,
+      startTime,
+    );
   }
+
+  const adjusted = adjustResponsesReasoningForModel(payload, translatedModel);
+  const adjustedPayload = adjusted.payload;
+  const effort = adjusted.effort;
 
   const headers = getCopilotHeaders();
   headers["X-Initiator"] = "agent";
 
-  const isStreaming = payload.stream;
+  const isStreaming = adjustedPayload.stream;
 
   try {
     const resp = await fetchUpstream(
       `${getCopilotBaseUrl()}/v1/responses`,
-      { method: "POST", headers, body: JSON.stringify(payload) }
+      { method: "POST", headers, body: JSON.stringify(adjustedPayload) }
     );
 
     if (isStreaming && resp.ok && resp.body) {
@@ -234,7 +246,7 @@ openaiRouter.post("/v1/responses", async (c) => {
           const rawInput = usage.input_tokens ?? usage.prompt_tokens ?? 0;
           const rawOutput = usage.output_tokens ?? usage.completion_tokens ?? 0;
           logRequest({
-            ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/responses", startTime),
+            ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/responses", startTime, effort),
             input_tokens: Math.max(0, rawInput - cachedTokens),
             cache_read_input_tokens: cachedTokens,
             output_tokens: Math.max(0, rawOutput - reasoningTokens),
@@ -256,7 +268,7 @@ openaiRouter.post("/v1/responses", async (c) => {
       const rawInput = usage.input_tokens ?? 0;
       const rawOutput = usage.output_tokens ?? 0;
       logRequest({
-        ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/responses", startTime),
+        ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/responses", startTime, effort),
         input_tokens: Math.max(0, rawInput - cachedTokens),
         cache_read_input_tokens: cachedTokens,
         output_tokens: Math.max(0, rawOutput - reasoningTokens),
