@@ -17,11 +17,9 @@ function getGitHubHeaders(): Record<string, string> {
 }
 
 export function getCopilotBaseUrl(): string {
-  const state = getState();
-  if (state.config.account_type === "individual") {
-    return "https://api.githubcopilot.com";
-  }
-  return `https://api.${state.config.account_type}.githubcopilot.com`;
+  // The upstream host comes from the token response (endpoints.api), captured on
+  // refresh. Fall back to the individual-plan host before the first refresh.
+  return getState().copilot_base_url || "https://api.githubcopilot.com";
 }
 
 let _refreshPromise: Promise<void> | null = null;
@@ -51,9 +49,15 @@ export async function refreshCopilotToken(): Promise<void> {
       const data = (await resp.json()) as {
         token: string;
         refresh_in?: number;
+        endpoints?: { api?: string };
       };
       state.copilot_token = data.token;
       state.token_expires_at = Date.now() / 1000 + (data.refresh_in ?? 1800);
+      // Capture the account-appropriate upstream host (individual / business /
+      // enterprise) straight from the token response, so we never have to guess.
+      if (data.endpoints?.api) {
+        state.copilot_base_url = data.endpoints.api;
+      }
       console.log("[Auth] Copilot token refreshed successfully");
     } finally {
       _refreshPromise = null;

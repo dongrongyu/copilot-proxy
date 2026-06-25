@@ -24,6 +24,12 @@ export interface State {
   github_token: string;
   copilot_token: string;
   token_expires_at: number;
+  /**
+   * Upstream Copilot API base URL, taken from the token response's
+   * `endpoints.api` (so individual / business / enterprise accounts each hit the
+   * right host automatically — no manual account_type to configure).
+   */
+  copilot_base_url: string;
   models: { data: CopilotModel[] } | null;
   config: Config;
 }
@@ -35,6 +41,7 @@ export function initState(config: Config): State {
     github_token: "",
     copilot_token: "",
     token_expires_at: 0,
+    copilot_base_url: "",
     models: null,
     config,
   };

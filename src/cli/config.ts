@@ -121,6 +121,65 @@ export function filterAndSortModels(modelIds: string[]): string[] {
     });
 }
 
+/**
+ * Compare two dotted version strings numerically (e.g. "4.8" > "4.10"? no:
+ * 4.10 > 4.8). Returns >0 if a is newer, <0 if older, 0 if equal. Missing
+ * segments count as 0 so "5" == "5.0".
+ */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
+/**
+ * Pick the single "best" model for a client family from the available ids, so
+ * Client Setup can default to the strongest option instead of the alphabetical
+ * first. Rules (highest version wins within each):
+ *   - claude : the newest Opus (e.g. claude-opus-4.8)
+ *   - gpt    : the newest full GPT-5 line, excluding mini / codex / dated /
+ *              preview variants (e.g. gpt-5.5)
+ *   - gemini : the newest Pro (e.g. gemini-3.1-pro-preview)
+ * Returns null when nothing in `ids` matches the family's preference, so callers
+ * can fall back to their existing first-entry default.
+ */
+export function pickBestModel(family: "claude" | "gpt" | "gemini", ids: string[]): string | null {
+  const verOf = (id: string, re: RegExp): string | null => {
+    const m = id.match(re);
+    return m ? m[1]! : null;
+  };
+
+  if (family === "claude") {
+    // Newest Opus by version number.
+    const opus = ids
+      .map((id) => ({ id, v: verOf(id, /^claude-opus-(\d+(?:\.\d+)?)/) }))
+      .filter((x): x is { id: string; v: string } => x.v !== null);
+    if (opus.length === 0) return null;
+    return opus.sort((a, b) => compareVersions(b.v, a.v))[0]!.id;
+  }
+
+  if (family === "gpt") {
+    // Full GPT-5 line only: exclude mini / codex / turbo and dated/preview ids.
+    const gpt = ids
+      .filter((id) => /^gpt-5(\.\d+)?$/.test(id))
+      .map((id) => ({ id, v: verOf(id, /^gpt-(\d+(?:\.\d+)?)$/)! }));
+    if (gpt.length === 0) return null;
+    return gpt.sort((a, b) => compareVersions(b.v, a.v))[0]!.id;
+  }
+
+  // gemini: newest Pro (allow a trailing -preview etc.).
+  const pro = ids
+    .filter((id) => /^gemini-[\d.]+-pro\b/.test(id))
+    .map((id) => ({ id, v: verOf(id, /^gemini-(\d+(?:\.\d+)?)-pro/)! }));
+  if (pro.length === 0) return null;
+  return pro.sort((a, b) => compareVersions(b.v, a.v))[0]!.id;
+}
+
 // Threshold for tagging a model as 1M-context in Claude Code config.
 // Claude Code reads the `[1m]` suffix to enable Anthropic's 1M-context beta
 // (`anthropic-beta: context-1m-2025-08-07`). That beta header is meaningless
@@ -464,8 +523,11 @@ async function configClaude(baseUrl: string, outputPath?: string) {
   }
 
   console.log("\nAvailable Claude models from Copilot API:\n");
-  // For Claude Code config, only show Claude models
-  const claudeModels = modelNames.filter((id: string) => id.startsWith("claude-"));
+  // For Claude Code config, only show Claude models, strongest first so the
+  // default selection [1] is the best model.
+  let claudeModels = modelNames.filter((id: string) => id.startsWith("claude-"));
+  const bestClaude = pickBestModel("claude", claudeModels);
+  if (bestClaude) claudeModels = [bestClaude, ...claudeModels.filter((id) => id !== bestClaude)];
 
   if (claudeModels.length === 0) {
     console.error("No Claude models found. Please check your Copilot subscription.");
@@ -568,12 +630,16 @@ async function configCodex(baseUrl: string, outputPath?: string) {
     await fetchModels();
 
     const modelList = getState().models?.data ?? [];
-    const modelNames = filterAndSortModels(modelList.map((m: any) => m.id));
+    let modelNames = filterAndSortModels(modelList.map((m: any) => m.id));
 
     if (modelNames.length === 0) {
       console.error("Failed to fetch models from Copilot API. Please run 'copilot-proxy login' first.");
       process.exit(1);
     }
+
+    // Surface the strongest GPT model first so the default selection [1] is best.
+    const bestGpt = pickBestModel("gpt", modelNames);
+    if (bestGpt) modelNames = [bestGpt, ...modelNames.filter((id) => id !== bestGpt)];
 
     console.log("\nAvailable models:\n");
     for (let i = 0; i < modelNames.length; i++) {
@@ -690,7 +756,10 @@ async function configGemini(baseUrl: string, outputPath?: string): Promise<void>
 
   const modelList = getState().models?.data ?? [];
   const modelNames = filterAndSortModels(modelList.map((m: any) => m.id));
-  const geminiModels = modelNames.filter((id: string) => id.toLowerCase().startsWith("gemini-"));
+  let geminiModels = modelNames.filter((id: string) => id.toLowerCase().startsWith("gemini-"));
+  // Strongest Gemini Pro first so the default selection [1] is best.
+  const bestGemini = pickBestModel("gemini", geminiModels);
+  if (bestGemini) geminiModels = [bestGemini, ...geminiModels.filter((id) => id !== bestGemini)];
 
   if (geminiModels.length === 0) {
     console.error("No Gemini models found in Copilot API. Please check your subscription.");

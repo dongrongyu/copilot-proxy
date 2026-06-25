@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { loadConfig, ensureConfigFile, getConfigPath } from "../config/loader";
+import { loadConfig, ensureConfigFile, ensureModelMappings, getConfigPath } from "../config/loader";
 import { initState } from "../auth/state";
 import { getGitHubToken } from "../auth/github-token";
 import { ensureCopilotToken, fetchModels } from "../auth/copilot-token";
@@ -10,6 +10,12 @@ export async function startServer(opts: { port?: string; host?: string }) {
   // Write the default config on first run so users have a file to edit.
   if (ensureConfigFile()) {
     console.log(`[Config] Created default config at: ${getConfigPath()}`);
+  }
+
+  // Backfill default model mappings into existing configs whose mappings are
+  // still empty (smooth upgrade for installs predating config-sourced defaults).
+  if (ensureModelMappings()) {
+    console.log(`[Config] Added default model mappings to: ${getConfigPath()}`);
   }
 
   const config = loadConfig();

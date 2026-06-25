@@ -11,10 +11,44 @@ export interface ModelMappingsConfig {
   prefix: Record<string, string>;
 }
 
+/**
+ * Factory-default model name translations (Claude Code model name -> Copilot
+ * model ID). This is the single source of truth for the defaults: it seeds the
+ * generated config.yaml (so users can see and edit them) and is injected into
+ * existing configs whose mappings are still empty. It is intentionally NOT part
+ * of DEFAULT_CONFIG.model_mappings (which stays empty as the delete-everything
+ * floor) — the real defaults live in the user's config file, not in code the
+ * user never sees.
+ *
+ * Prefix rules normalize dash-form Claude Code names (e.g. "claude-opus-4-6-...")
+ * to dot-form Copilot IDs. Dot-form names (e.g. "claude-opus-4.6-1m") are already
+ * valid Copilot IDs and pass through verbatim, so they are deliberately absent
+ * here — a dot-form prefix would wrongly strip suffixes like "-1m".
+ */
+export const DEFAULT_MODEL_MAPPINGS: ModelMappingsConfig = {
+  exact: {
+    opus: "claude-opus-4.8",
+    sonnet: "claude-sonnet-4.6",
+    haiku: "claude-haiku-4.5",
+    "claude-opus-4-6": "claude-opus-4.6",
+    "claude-opus-4-7": "claude-opus-4.7",
+    "claude-opus-4-8": "claude-opus-4.8",
+    "claude-opus-4-5": "claude-opus-4.5",
+    "claude-haiku-4-5": "claude-haiku-4.5",
+  },
+  prefix: {
+    "claude-sonnet-4-": "claude-sonnet-4.6",
+    "claude-haiku-4-5-": "claude-haiku-4.5",
+    "claude-opus-4-5-": "claude-opus-4.5",
+    "claude-opus-4-6-": "claude-opus-4.6",
+    "claude-opus-4-7-": "claude-opus-4.7",
+    "claude-opus-4-8-": "claude-opus-4.8",
+  },
+};
+
 export interface Config {
   address: string;
   port: number;
-  account_type: "individual" | "business" | "enterprise";
   vscode_version: string;
   api_version: string;
   copilot_version: string;
@@ -33,12 +67,11 @@ export interface Config {
 export const DEFAULT_CONFIG: Config = {
   address: "localhost",
   port: 8989,
-  account_type: "individual",
   vscode_version: "1.93.0",
   api_version: "2025-04-01",
   copilot_version: "0.26.7",
   max_connection_retries: 3,
-  effort: "high",
+  effort: "xhigh",
   model_mappings: {
     exact: {},
     prefix: {},

@@ -139,8 +139,21 @@
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
   .dot.ok { background: var(--green); box-shadow: 0 0 8px var(--green); }
 
+  /* Top-right entry to the raw config.yaml editor. Positioned absolutely inside
+     .main so it tracks the content's right edge (which is max-width capped and
+     left-aligned), instead of flying off to the viewport corner on wide screens. */
+  .config-fab {
+    position: absolute; top: 28px; right: 34px; z-index: 50;
+    display: inline-flex; align-items: center; gap: 7px;
+    background: var(--bg-elev2); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--fg-muted); padding: 8px 13px; font-size: 12.5px; font-weight: 600;
+    cursor: pointer; box-shadow: var(--menu-shadow); letter-spacing: .1px;
+  }
+  .config-fab:hover { color: var(--fg); border-color: var(--accent); background: var(--accent-soft); }
+  .config-fab .ic { font-size: 14px; }
+
   /* ---------- Main ---------- */
-  .main { padding: 28px 34px 60px; max-width: 1080px; }
+  .main { position: relative; padding: 28px 34px 60px; max-width: 1080px; }
   .page { display: none; }
   .page.active { display: block; animation: fade .18s ease; }
   @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
@@ -357,9 +370,10 @@
     <div class="nav-item" data-page="usage"><span class="ic">▭</span> Usage</div>
     <div class="nav-item" data-page="logs"><span class="ic">≣</span> Request Logs</div>
     <div class="nav-sep"></div>
-    <div class="nav-item" data-page="websearch"><span class="ic">⌕</span> Web Search</div>
-    <div class="nav-item" data-page="effort"><span class="ic">◐</span> Reasoning</div>
     <div class="nav-item" data-page="setup"><span class="ic">⚙</span> Client Setup</div>
+    <div class="nav-item" data-page="effort"><span class="ic">◐</span> Reasoning</div>
+    <div class="nav-item" data-page="websearch"><span class="ic">⌕</span> Web Search</div>
+    <div class="nav-item" data-page="mappings"><span class="ic">⇄</span> Model Mapping</div>
 
     <div class="sidebar-foot">
       <button class="theme-toggle" id="themeToggle" type="button">
@@ -371,6 +385,9 @@
 
   <!-- ============ Main ============ -->
   <main class="main">
+    <button class="config-fab" id="configFileBtn" type="button" title="Edit config.yaml directly">
+      <span class="ic">❏</span> Config File
+    </button>
 
     <!-- ---------- Dashboard ---------- -->
     <section class="page active" id="dashboard">
@@ -406,7 +423,6 @@
         <div class="card pad-lg">
           <h3>Environment</h3>
           <div class="kv">
-            <div class="k">Account type</div><div class="v" id="envAccount">—</div>
             <div class="k">Web search</div><div class="v" id="envWeb">—</div>
             <div class="k">Config path</div><div class="v" id="envConfig">—</div>
           </div>
@@ -630,6 +646,50 @@
       </div>
     </section>
 
+    <!-- ---------- Model Mapping ---------- -->
+    <section class="page" id="mappings">
+      <div class="page-head">
+        <h1>Model Mapping</h1>
+        <p>Translate incoming Claude Code model names to Copilot model IDs. Edit the table below and save — changes write straight to <span class="mono">config.yaml</span> and apply instantly, no restart.</p>
+      </div>
+
+      <div class="toolbar">
+        <span class="help" style="margin:0">Two sections: <span class="mono">exact</span> (full-name match) and <span class="mono">prefix</span> (startsWith match). Quote each <span class="mono">"name": "value"</span>.</span>
+        <span class="spacer"></span>
+        <button class="ghost" id="mappingsReset">Reset to defaults</button>
+        <button class="primary" id="mappingsSave">Save</button>
+      </div>
+
+      <div class="card pad-lg">
+        <textarea id="mappingsEditor" spellcheck="false"
+          style="width:100%; min-height:360px; resize:vertical; background:var(--bg-elev2); color:var(--fg); border:1px solid var(--border); border-radius:8px; padding:14px; font-family:'IBM Plex Mono',monospace; font-size:13px; line-height:1.6; tab-size:2;"></textarea>
+        <div class="help" style="margin-top:10px">
+          Stored under <span class="mono">model_mappings:</span> in <span class="mono" id="mappingsPath"></span>.
+          The <span class="mono">[1m]</span> marker is stripped before lookup; dash-form names (e.g. <span class="mono">claude-opus-4-8</span>) are normalized to dot-form Copilot IDs.
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- Configuration (whole-file) ---------- -->
+    <section class="page" id="config">
+      <div class="page-head">
+        <h1>Configuration</h1>
+        <p>Edit the entire <span class="mono">config.yaml</span> directly. Saving validates the YAML and writes it to disk. Most fields apply instantly; <span class="mono">port</span>/<span class="mono">address</span> changes need a restart.</p>
+      </div>
+
+      <div class="toolbar">
+        <span class="help" style="margin:0">Full config file — comments and all. Invalid YAML is rejected on save.</span>
+        <span class="spacer"></span>
+        <button class="primary" id="configSave">Save</button>
+      </div>
+
+      <div class="card pad-lg">
+        <textarea id="configEditor" spellcheck="false"
+          style="width:100%; min-height:460px; resize:vertical; background:var(--bg-elev2); color:var(--fg); border:1px solid var(--border); border-radius:8px; padding:14px; font-family:'IBM Plex Mono',monospace; font-size:13px; line-height:1.6; tab-size:2;"></textarea>
+        <div class="help" style="margin-top:10px">File: <span class="mono" id="configPath"></span></div>
+      </div>
+    </section>
+
     <!-- ---------- Client Setup ---------- -->
     <section class="page" id="setup">
       <div class="page-head">
@@ -732,6 +792,14 @@ document.querySelectorAll('.nav-item').forEach(n => n.onclick = () => {
   $(page).classList.add('active');
   loadPage(page);
 });
+// Config File is not a regular nav tab — it's reached via the floating top-right
+// button. Activate its page directly and clear any active nav highlight.
+$("configFileBtn").onclick = () => {
+  document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
+  $("config").classList.add('active');
+  loadPage("config");
+};
 function loadPage(page){
   if (page === "usage") loadUsage();          // always reload (month selector)
   else if (page === "logs") loadLogs();       // always reload (date selector)
@@ -741,6 +809,8 @@ function loadPage(page){
     else if (page === "models") loadModels();
     else if (page === "websearch") loadWebSearch();
     else if (page === "effort") loadEffort();
+    else if (page === "mappings") loadMappings();
+    else if (page === "config") loadConfigFile();
   }
 }
 
@@ -774,7 +844,6 @@ async function loadDashboard(){
     $("dashReqs").textContent = d.requestsToday.total.toLocaleString();
     $("dashReqsSub").textContent = d.requestsToday.errors + " errors";
     const e = d.environment;
-    $("envAccount").textContent = e.account_type;
     $("envWeb").innerHTML = e.web_search.enabled
       ? '<span class="badge green">ON · ' + esc(e.web_search.provider) + '</span>'
       : '<span class="badge dim">OFF</span>';
@@ -1075,6 +1144,42 @@ document.querySelectorAll('#effortSeg button').forEach(b=>b.onclick=async()=>{
   else toast(data.error||"Failed", true);
 });
 
+// ---------- model mapping ----------
+let MAPPINGS_DEFAULTS = "";
+async function loadMappings(){
+  try {
+    const d = await getJSON('/api/portal/model-mappings');
+    $("mappingsEditor").value = d.content;
+    $("mappingsPath").textContent = d.config_path;
+    MAPPINGS_DEFAULTS = d.defaults || "";
+  } catch(err){ toast("Failed to load model mappings", true); }
+}
+$("mappingsSave").onclick = async () => {
+  const content = $("mappingsEditor").value;
+  const {ok,data} = await postJSON('/api/portal/model-mappings', { content });
+  if(ok){ $("mappingsEditor").value = data.state.content; toast("Model mappings saved ✓"); }
+  else toast(data.error||"Save failed", true);
+};
+$("mappingsReset").onclick = () => {
+  // Load factory defaults into the editor; not persisted until the user saves.
+  if(MAPPINGS_DEFAULTS){ $("mappingsEditor").value = MAPPINGS_DEFAULTS; toast("Loaded factory defaults — click Save to apply"); }
+};
+
+// ---------- configuration (whole file) ----------
+async function loadConfigFile(){
+  try {
+    const d = await getJSON('/api/portal/config-file');
+    $("configEditor").value = d.content;
+    $("configPath").textContent = d.config_path;
+  } catch(err){ toast("Failed to load config file", true); }
+}
+$("configSave").onclick = async () => {
+  const content = $("configEditor").value;
+  const {ok,data} = await postJSON('/api/portal/config-file', { content });
+  if(ok){ $("configEditor").value = data.state.content; toast(data.note || "Configuration saved ✓"); }
+  else toast(data.error||"Save failed", true);
+};
+
 // ---------- setup ----------
 const SETUP_LABEL = { claude:"Claude Code", codex:"Codex", gemini:"Gemini" };
 let setupTarget="claude", setupWhere="both", codexMode="proxy", SETUP_STATE=null;
@@ -1199,7 +1304,11 @@ function syncCodexVisibility(){
 function initSetup(){
   document.querySelectorAll('#setupTarget button').forEach(b=>b.onclick=()=>{
     document.querySelectorAll('#setupTarget button').forEach(x=>x.classList.remove('on'));
-    b.classList.add('on'); setupTarget=b.dataset.t; syncCodexVisibility(); refreshSetupPreview();
+    b.classList.add('on'); setupTarget=b.dataset.t;
+    // Clear the previous target's model so the backend picks this target's
+    // default (its strongest model) instead of receiving a stale, cross-family id.
+    const sel=$("setupModel"); sel.value=""; sel.dataset.for=""; modelCsel.sync();
+    syncCodexVisibility(); refreshSetupPreview();
   });
   document.querySelectorAll('#setupWhere button').forEach(b=>b.onclick=()=>{
     document.querySelectorAll('#setupWhere button').forEach(x=>x.classList.remove('on'));

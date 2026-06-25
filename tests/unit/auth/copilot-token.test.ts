@@ -9,19 +9,19 @@ describe("Copilot Token Utilities", () => {
   });
 
   describe("getCopilotBaseUrl", () => {
-    test("individual account", () => {
-      getState().config.account_type = "individual";
+    test("falls back to the individual host before any token refresh", () => {
+      // copilot_base_url starts empty until the first token response is parsed.
       expect(getCopilotBaseUrl()).toBe("https://api.githubcopilot.com");
     });
 
-    test("business account", () => {
-      getState().config.account_type = "business";
-      expect(getCopilotBaseUrl()).toBe("https://api.business.githubcopilot.com");
+    test("returns the host captured from the token response (endpoints.api)", () => {
+      getState().copilot_base_url = "https://api.enterprise.githubcopilot.com";
+      expect(getCopilotBaseUrl()).toBe("https://api.enterprise.githubcopilot.com");
     });
 
-    test("enterprise account", () => {
-      getState().config.account_type = "enterprise";
-      expect(getCopilotBaseUrl()).toBe("https://api.enterprise.githubcopilot.com");
+    test("returns the business host when that is what the token reported", () => {
+      getState().copilot_base_url = "https://api.business.githubcopilot.com";
+      expect(getCopilotBaseUrl()).toBe("https://api.business.githubcopilot.com");
     });
   });
 

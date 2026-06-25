@@ -1,65 +1,40 @@
 import { getState } from "../auth/state";
 
-// Built-in exact mappings (Claude Code model name -> Copilot model ID)
-const BUILTIN_EXACT: Record<string, string> = {
-  opus: "claude-opus-4.6",
-  sonnet: "claude-sonnet-4.5",
-  haiku: "claude-haiku-4.5",
-  "claude-opus-4-6": "claude-opus-4.6",
-  "claude-opus-4-7": "claude-opus-4.7",
-  "claude-opus-4-8": "claude-opus-4.8",
-  "claude-opus-4-5": "claude-opus-4.5",
-  "claude-haiku-4-5": "claude-haiku-4.5",
-};
-
-// Built-in prefix mappings.
-// Only dash-form (Claude Code naming, e.g. "claude-opus-4-6-20250514") needs
-// normalization. Dot-form names (e.g. "claude-opus-4.6-1m") are already valid
-// Copilot model IDs and must pass through verbatim — adding a dot-form prefix
-// here would incorrectly strip real suffixes like "-1m" or "-1m-internal".
-const BUILTIN_PREFIX: Record<string, string> = {
-  "claude-sonnet-4-": "claude-sonnet-4",
-  "claude-haiku-4-5-": "claude-haiku-4.5",
-  "claude-opus-4-5-": "claude-opus-4.5",
-  "claude-opus-4-6-": "claude-opus-4.6",
-  "claude-opus-4-7-": "claude-opus-4.7",
-  "claude-opus-4-8-": "claude-opus-4.8",
-};
-
 /**
- * Translate model name with three-layer resolution:
- * 1. User config (exact > prefix)
- * 2. Built-in defaults (exact > prefix)
- * 3. [1m] is a Claude-Code-only marker — strip it and use the remainder
- *    as the literal Copilot model id. The full Copilot id is always written
- *    to the config, so the remainder is already a valid model name.
+ * Translate a model name to a Copilot model ID. The mapping tables live in
+ * config (config.model_mappings), seeded from DEFAULT_MODEL_MAPPINGS and
+ * overridable by the user — this function holds only the resolution *logic*.
+ *
+ * Resolution order:
+ * 1. exact match on the raw name (lets a user map a literal "...[1m]" id)
+ * 2. prefix match on the raw name (longest prefix first)
+ * 3. [1m] is a Claude-Code-only marker (it tells Claude Code a model is
+ *    1M-context; it has no meaning to Copilot). Strip it, then RE-RUN exact +
+ *    prefix so a dash-form name still normalizes — e.g.
+ *    "claude-opus-4-8[1m]" -> strip -> "claude-opus-4-8" -> "claude-opus-4.8".
+ *    Strip even on no match so a raw "[1m]" never reaches the upstream API.
+ * 4. passthrough.
  */
 export function translateModelName(model: string): string {
-  const { config } = getState();
-  const userExact = config.model_mappings.exact;
-  const userPrefix = config.model_mappings.prefix;
+  const { exact, prefix } = getState().config.model_mappings;
 
-  // Layer 1: User exact match
-  if (userExact[model]) return userExact[model];
+  // Layer 1: exact on the raw name
+  if (exact[model]) return exact[model];
 
-  // Layer 1: User prefix match (longest prefix first)
-  const userPrefixMatch = findPrefixMatch(model, userPrefix);
-  if (userPrefixMatch) return userPrefixMatch;
+  // Layer 2: prefix on the raw name (longest prefix first)
+  const prefixMatch = findPrefixMatch(model, prefix);
+  if (prefixMatch) return prefixMatch;
 
-  // Layer 3 (handled before Layer 2 prefix to avoid prefix matches eating
-  // the "-1m" / "-1m-internal" suffix): [1m] is a Claude Code marker only.
+  // Layer 3: strip the [1m] marker, then retry exact + prefix on the remainder.
   if (model.includes("[1m]")) {
-    return model.replace("[1m]", "");
+    const stripped = model.replace("[1m]", "");
+    if (exact[stripped]) return exact[stripped];
+    const strippedPrefix = findPrefixMatch(stripped, prefix);
+    if (strippedPrefix) return strippedPrefix;
+    return stripped;
   }
 
-  // Layer 2: Built-in exact match
-  if (BUILTIN_EXACT[model]) return BUILTIN_EXACT[model];
-
-  // Layer 2: Built-in prefix match
-  const builtinPrefixMatch = findPrefixMatch(model, BUILTIN_PREFIX);
-  if (builtinPrefixMatch) return builtinPrefixMatch;
-
-  // No match, return original
+  // Layer 4: no match, return original
   return model;
 }
 

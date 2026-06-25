@@ -1,25 +1,28 @@
 import { describe, expect, test, beforeEach } from "bun:test";
 import { initState, getState } from "../../../src/auth/state";
-import { DEFAULT_CONFIG } from "../../../src/config/schema";
+import { DEFAULT_CONFIG, DEFAULT_MODEL_MAPPINGS } from "../../../src/config/schema";
 import { translateModelName, reverseModelName } from "../../../src/proxy/model-mapping";
 
 describe("Model Mapping", () => {
   beforeEach(() => {
+    // Defaults now live in config (seeded from DEFAULT_MODEL_MAPPINGS), not in
+    // model-mapping.ts. loadConfig merges user entries over these; here we seed
+    // them directly so translateModelName resolves built-in names.
     initState({
       ...DEFAULT_CONFIG,
       model_mappings: {
-        exact: { ...DEFAULT_CONFIG.model_mappings.exact },
-        prefix: { ...DEFAULT_CONFIG.model_mappings.prefix },
+        exact: { ...DEFAULT_MODEL_MAPPINGS.exact },
+        prefix: { ...DEFAULT_MODEL_MAPPINGS.prefix },
       },
     });
   });
 
   describe("built-in exact mappings", () => {
-    test("opus -> claude-opus-4.6", () => {
-      expect(translateModelName("opus")).toBe("claude-opus-4.6");
+    test("opus -> claude-opus-4.8", () => {
+      expect(translateModelName("opus")).toBe("claude-opus-4.8");
     });
-    test("sonnet -> claude-sonnet-4.5", () => {
-      expect(translateModelName("sonnet")).toBe("claude-sonnet-4.5");
+    test("sonnet -> claude-sonnet-4.6", () => {
+      expect(translateModelName("sonnet")).toBe("claude-sonnet-4.6");
     });
     test("haiku -> claude-haiku-4.5", () => {
       expect(translateModelName("haiku")).toBe("claude-haiku-4.5");
@@ -45,8 +48,8 @@ describe("Model Mapping", () => {
     test("claude-opus-4-8-xxx -> claude-opus-4.8", () => {
       expect(translateModelName("claude-opus-4-8-20260601")).toBe("claude-opus-4.8");
     });
-    test("claude-sonnet-4-xxx -> claude-sonnet-4", () => {
-      expect(translateModelName("claude-sonnet-4-20250514")).toBe("claude-sonnet-4");
+    test("claude-sonnet-4-xxx -> claude-sonnet-4.6", () => {
+      expect(translateModelName("claude-sonnet-4-20250514")).toBe("claude-sonnet-4.6");
     });
     test("dot-form passes through (claude-haiku-4.5-20250101)", () => {
       expect(translateModelName("claude-haiku-4.5-20250101")).toBe("claude-haiku-4.5-20250101");
@@ -74,6 +77,14 @@ describe("Model Mapping", () => {
     });
     test("strips [1m] from arbitrary id", () => {
       expect(translateModelName("any-model-name[1m]")).toBe("any-model-name");
+    });
+    test("dash-form + [1m] still normalizes to dot-form (regression: was 400)", () => {
+      // Previously the [1m] branch returned immediately after stripping, emitting
+      // the invalid dash-form "claude-opus-4-8". Now it re-runs the mapping.
+      expect(translateModelName("claude-opus-4-8[1m]")).toBe("claude-opus-4.8");
+    });
+    test("alias + [1m] resolves via exact after strip", () => {
+      expect(translateModelName("opus[1m]")).toBe("claude-opus-4.8");
     });
   });
 

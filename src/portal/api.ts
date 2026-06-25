@@ -1,6 +1,18 @@
 import { getState } from "../auth/state";
-import { loadConfig, updateWebSearchConfig, updateEffortConfig, getConfigPath } from "../config/loader";
+import {
+  loadConfig,
+  updateWebSearchConfig,
+  updateEffortConfig,
+  updateModelMappings,
+  renderMappingsBlock,
+  readConfigFileText,
+  writeConfigFileText,
+  getConfigPath,
+} from "../config/loader";
 import type { WebSearchUpdate } from "../config/loader";
+import type { ModelMappingsConfig } from "../config/schema";
+import { DEFAULT_MODEL_MAPPINGS } from "../config/schema";
+import yaml from "js-yaml";
 import { runWebSearchProbeFor } from "../proxy/web-search";
 import {
   readMonthlyUsage,
@@ -15,6 +27,7 @@ import {
   buildCodexAoaiToml,
   claudeDisplayName,
   filterAndSortModels,
+  pickBestModel,
   resolveConfigTargets,
   writeClaudeConfig,
   writeCodexConfig,
@@ -94,7 +107,6 @@ export function dashboardData() {
     models: { total: data.length, anthropic: anthropicCount },
     requestsToday: { total: today.length, errors: errorsToday },
     environment: {
-      account_type: config.account_type,
       web_search: { enabled: ws.enabled, provider: ws.provider },
       config_path: getConfigPath(),
     },
@@ -318,6 +330,151 @@ export function applyEffort(body: { effort?: string }): {
 }
 
 // ---------------------------------------------------------------------------
+// Model Name Mappings
+// ---------------------------------------------------------------------------
+
+/**
+ * Expose the current model mappings as an editable YAML document (the
+ * `exact:`/`prefix:` block) so the portal can show one text area the user edits
+ * directly. Saving writes it straight back into config.yaml.
+ */
+export function modelMappingsData() {
+  const { model_mappings } = loadConfig();
+  return {
+    content: renderMappingsBlock(model_mappings),
+    defaults: renderMappingsBlock(DEFAULT_MODEL_MAPPINGS),
+    config_path: getConfigPath(),
+  };
+}
+
+/**
+ * Validate a submitted mappings document against the
+ * `{ exact: {str:str}, prefix: {str:str} }` shape. Returns the parsed tables on
+ * success or a human-readable error string on failure.
+ */
+function parseMappings(content: string): { ok: true; mappings: ModelMappingsConfig } | { ok: false; error: string } {
+  let doc: unknown;
+  try {
+    doc = yaml.load(content);
+  } catch (err) {
+    return { ok: false, error: `Invalid YAML: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  // An empty document is a valid "clear everything" intent.
+  if (doc == null) return { ok: true, mappings: { exact: {}, prefix: {} } };
+  if (typeof doc !== "object" || Array.isArray(doc)) {
+    return { ok: false, error: "Expected a mapping with optional `exact:` and `prefix:` sections." };
+  }
+
+  const validateSection = (name: "exact" | "prefix", raw: unknown): Record<string, string> | string => {
+    if (raw == null) return {};
+    if (typeof raw !== "object" || Array.isArray(raw)) return `\`${name}\` must be a map of name: value pairs.`;
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof v !== "string") return `\`${name}.${k}\` must be a string (got ${typeof v}).`;
+      out[k] = v;
+    }
+    return out;
+  };
+
+  const d = doc as Record<string, unknown>;
+  const extraKeys = Object.keys(d).filter((k) => k !== "exact" && k !== "prefix");
+  if (extraKeys.length > 0) {
+    return { ok: false, error: `Unknown section(s): ${extraKeys.join(", ")}. Only \`exact:\` and \`prefix:\` are allowed.` };
+  }
+  const exact = validateSection("exact", d.exact);
+  if (typeof exact === "string") return { ok: false, error: exact };
+  const prefix = validateSection("prefix", d.prefix);
+  if (typeof prefix === "string") return { ok: false, error: prefix };
+
+  return { ok: true, mappings: { exact, prefix } };
+}
+
+/**
+ * Persist edited model mappings from the portal. Validates the submitted YAML,
+ * writes it back into config.yaml (comments preserved via updateModelMappings)
+ * AND hot-updates the in-memory config so translation picks it up without a
+ * restart. Mirrors applyEffort/applyWebSearch: mutate only model_mappings, never
+ * replace the whole config object (that would clobber -p/-H overrides).
+ */
+export function applyModelMappings(body: { content?: string }): {
+  ok: boolean;
+  error?: string;
+  state?: ReturnType<typeof modelMappingsData>;
+} {
+  const parsed = parseMappings(body.content ?? "");
+  if (!parsed.ok) return { ok: false, error: parsed.error };
+
+  updateModelMappings(parsed.mappings);
+  getState().config.model_mappings = loadConfig().model_mappings;
+  return { ok: true, state: modelMappingsData() };
+}
+
+// ---------------------------------------------------------------------------
+// Whole-file config editor
+// ---------------------------------------------------------------------------
+
+/** Raw config.yaml text + its path, for the portal's full-file editor. */
+export function configFileData() {
+  return {
+    content: readConfigFileText(),
+    config_path: getConfigPath(),
+  };
+}
+
+/**
+ * Save raw config.yaml text from the portal. Validation is intentionally light:
+ * the content must parse as a YAML mapping (so we never persist a syntactically
+ * broken file). Field-level semantics are NOT validated here — loadConfig
+ * tolerates missing/odd fields by filling from DEFAULT_CONFIG, and invalid
+ * values surface at use time.
+ *
+ * After writing, the hot-reloadable fields are pushed into the in-memory config
+ * so changes take effect without a restart. port/address are deliberately NOT
+ * hot-applied: the server is already bound to a socket and may carry -p/-H
+ * runtime overrides, so those need a restart (the portal warns about this).
+ */
+export function applyConfigFile(body: { content?: string }): {
+  ok: boolean;
+  error?: string;
+  state?: ReturnType<typeof configFileData>;
+  note?: string;
+} {
+  const content = body.content ?? "";
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(content);
+  } catch (err) {
+    return { ok: false, error: `Invalid YAML: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  if (parsed != null && (typeof parsed !== "object" || Array.isArray(parsed))) {
+    return { ok: false, error: "Config must be a YAML mapping (key: value pairs)." };
+  }
+
+  writeConfigFileText(content);
+
+  // Hot-reload the fields the running proxy can pick up live, mirroring the
+  // single-field apply* helpers. Never replace the whole config object (that
+  // would clobber -p/-H runtime overrides on port/address).
+  const fresh = loadConfig();
+  const live = getState().config;
+  live.effort = fresh.effort;
+  live.web_search = fresh.web_search;
+  live.model_mappings = fresh.model_mappings;
+  live.max_connection_retries = fresh.max_connection_retries;
+
+  // Detect whether port/address on disk now differ from what's running, to warn
+  // the user a restart is needed for those.
+  const portChanged = fresh.port !== live.port;
+  const addressChanged = fresh.address !== live.address;
+  const note =
+    portChanged || addressChanged
+      ? "Saved. Note: port/address changes take effect after a restart."
+      : undefined;
+
+  return { ok: true, state: configFileData(), note };
+}
+
+// ---------------------------------------------------------------------------
 // Client Setup
 // ---------------------------------------------------------------------------
 
@@ -333,21 +490,26 @@ interface SetupOpts {
   aoaiEnvKey?: string;
 }
 
-/** Models offered for a given target, filtered like the CLI does. */
+/** Models offered for a given target, filtered like the CLI does. The strongest
+ * model for the family is moved to the front so it becomes the default
+ * selection (choices[0]). */
 function modelsForTarget(target: SetupTarget): { id: string; display: string }[] {
   const { models } = getState();
   const catalog = models?.data ?? [];
   const ids = filterAndSortModels(catalog.map((m) => m.id));
+
+  const family = target === "claude" ? "claude" : target === "gemini" ? "gemini" : "gpt";
+  const prefix = target === "claude" ? "claude-" : target === "gemini" ? "gemini-" : "gpt-";
+  let familyIds = ids.filter((id) => id.toLowerCase().startsWith(prefix));
+
+  // Surface the strongest model first (defaults to choices[0] in the UI).
+  const best = pickBestModel(family, familyIds);
+  if (best) familyIds = [best, ...familyIds.filter((id) => id !== best)];
+
   if (target === "claude") {
-    return ids
-      .filter((id) => id.startsWith("claude-"))
-      .map((id) => ({ id, display: claudeDisplayName(id, catalog) }));
+    return familyIds.map((id) => ({ id, display: claudeDisplayName(id, catalog) }));
   }
-  if (target === "gemini") {
-    return ids.filter((id) => id.toLowerCase().startsWith("gemini-")).map((id) => ({ id, display: id }));
-  }
-  // codex → OpenAI GPT family only
-  return ids.filter((id) => id.toLowerCase().startsWith("gpt-")).map((id) => ({ id, display: id }));
+  return familyIds.map((id) => ({ id, display: id }));
 }
 
 /** Reasoning-effort support for a model id (Codex), if the catalog reports it. */

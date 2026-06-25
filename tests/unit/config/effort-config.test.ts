@@ -103,9 +103,9 @@ describe("setEffortField", () => {
 });
 
 describe("loadConfig effort defaults", () => {
-  test("the default template parses with effort = high", () => {
+  test("the default template parses with effort = xhigh", () => {
     const parsed = yaml.load(DEFAULT_CONFIG_TEMPLATE) as any;
-    expect(parsed.effort).toBe("high");
+    expect(parsed.effort).toBe("xhigh");
   });
 
   test("loadConfig always returns a non-empty effort string", () => {

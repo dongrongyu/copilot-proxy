@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   filterAndSortModels,
+  pickBestModel,
   buildClaudeEnv,
   mergeClaudeSettings,
   buildCodexProxyToml,
@@ -42,6 +43,32 @@ describe("Config Utilities", () => {
     test("handles all filtered out", () => {
       const input = ["accounts/msft/routers/x", "text-embedding-ada-002"];
       expect(filterAndSortModels(input)).toEqual([]);
+    });
+  });
+
+  describe("pickBestModel", () => {
+    const claude = ["claude-haiku-4.5", "claude-opus-4.5", "claude-opus-4.6", "claude-opus-4.7", "claude-opus-4.8", "claude-sonnet-4.5", "claude-sonnet-4.6"];
+    const gpt = ["gpt-3.5-turbo", "gpt-4", "gpt-4.1", "gpt-4o", "gpt-4o-mini", "gpt-5-mini", "gpt-5.3-codex", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5"];
+    const gemini = ["gemini-2.5-pro", "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-3.5-flash"];
+
+    test("claude: newest Opus", () => {
+      expect(pickBestModel("claude", claude)).toBe("claude-opus-4.8");
+    });
+    test("gpt: newest full GPT-5, excluding mini/codex", () => {
+      expect(pickBestModel("gpt", gpt)).toBe("gpt-5.5");
+    });
+    test("gemini: newest Pro", () => {
+      expect(pickBestModel("gemini", gemini)).toBe("gemini-3.1-pro-preview");
+    });
+    test("version compare is numeric, not lexical (4.10 > 4.9)", () => {
+      expect(pickBestModel("claude", ["claude-opus-4.9", "claude-opus-4.10"])).toBe("claude-opus-4.10");
+    });
+    test("returns null when no family match", () => {
+      expect(pickBestModel("gpt", ["claude-opus-4.8"])).toBeNull();
+      expect(pickBestModel("gemini", [])).toBeNull();
+    });
+    test("gpt excludes mini-only / codex-only sets", () => {
+      expect(pickBestModel("gpt", ["gpt-5-mini", "gpt-5.3-codex", "gpt-4o"])).toBeNull();
     });
   });
 

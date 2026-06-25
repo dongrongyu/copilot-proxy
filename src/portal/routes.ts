@@ -10,6 +10,10 @@ import {
   testWebSearch,
   effortData,
   applyEffort,
+  modelMappingsData,
+  applyModelMappings,
+  configFileData,
+  applyConfigFile,
   setupPreview,
   applySetup,
   type SetupTarget,
@@ -57,6 +61,22 @@ portalRouter.get("/api/portal/effort", (c) => c.json(effortData()));
 portalRouter.post("/api/portal/effort", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const result = applyEffort(body);
+  return c.json(result, result.ok ? 200 : 400);
+});
+
+portalRouter.get("/api/portal/model-mappings", (c) => c.json(modelMappingsData()));
+
+portalRouter.post("/api/portal/model-mappings", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const result = applyModelMappings(body);
+  return c.json(result, result.ok ? 200 : 400);
+});
+
+portalRouter.get("/api/portal/config-file", (c) => c.json(configFileData()));
+
+portalRouter.post("/api/portal/config-file", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const result = applyConfigFile(body);
   return c.json(result, result.ok ? 200 : 400);
 });
 
