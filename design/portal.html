@@ -837,8 +837,18 @@ async function loadDashboard(){
       ? '<span class="badge green"><span class="dot ok"></span> ONLINE</span>' : '<span class="badge red">OFFLINE</span>';
     $("dashServerSub").textContent = d.server.address + ":" + d.server.port;
     $("footStatus").textContent = "running · " + d.server.address + ":" + d.server.port;
-    $("dashToken").innerHTML = d.token.valid ? '<span class="badge green">VALID</span>' : '<span class="badge red">EXPIRED</span>';
-    $("dashTokenSub").textContent = d.token.valid ? ("expires in " + d.token.expiresInMin + "m · auto-refresh") : "run: copilot-proxy login";
+    if (!d.token.ready) {
+      // No GitHub token — the only state that actually needs the user to act.
+      $("dashToken").innerHTML = '<span class="badge red">NOT LOGGED IN</span>';
+      $("dashTokenSub").textContent = "run: copilot-proxy login";
+    } else if (d.token.copilotValid) {
+      $("dashToken").innerHTML = '<span class="badge green">VALID</span>';
+      $("dashTokenSub").textContent = "expires in " + d.token.expiresInMin + "m · auto-refresh";
+    } else {
+      // GitHub token present but Copilot token lapsed — harmless, refreshes itself.
+      $("dashToken").innerHTML = '<span class="badge green">ACTIVE</span>';
+      $("dashTokenSub").textContent = "refreshes on next request";
+    }
     $("dashModels").textContent = d.models.total;
     $("dashModelsSub").textContent = d.models.anthropic + " Anthropic-compatible";
     $("dashReqs").textContent = d.requestsToday.total.toLocaleString();

@@ -94,8 +94,10 @@ describe("Model Mapping", () => {
       expect(translateModelName("opus")).toBe("claude-opus-4.6-1m");
     });
 
-    test("user exact overrides [1m] parsing", () => {
-      getState().config.model_mappings.exact["claude-opus-4-6[1m]"] = "my-custom-model";
+    test("[1m] is stripped before matching, so map the bare name", () => {
+      // No real id carries [1m] (it's a Claude-Code-only marker), so it is
+      // stripped first; a user maps the bare name, not the bracketed one.
+      getState().config.model_mappings.exact["claude-opus-4-6"] = "my-custom-model";
       expect(translateModelName("claude-opus-4-6[1m]")).toBe("my-custom-model");
     });
 

@@ -5,37 +5,30 @@ import { getState } from "../auth/state";
  * config (config.model_mappings), seeded from DEFAULT_MODEL_MAPPINGS and
  * overridable by the user — this function holds only the resolution *logic*.
  *
+ * `[1m]` is a Claude-Code-only marker (it tells Claude Code a model is
+ * 1M-context; it means nothing to Copilot and no real model id carries it), so
+ * it is stripped up front before any matching.
+ *
  * Resolution order:
- * 1. exact match on the raw name (lets a user map a literal "...[1m]" id)
- * 2. prefix match on the raw name (longest prefix first)
- * 3. [1m] is a Claude-Code-only marker (it tells Claude Code a model is
- *    1M-context; it has no meaning to Copilot). Strip it, then RE-RUN exact +
- *    prefix so a dash-form name still normalizes — e.g.
- *    "claude-opus-4-8[1m]" -> strip -> "claude-opus-4-8" -> "claude-opus-4.8".
- *    Strip even on no match so a raw "[1m]" never reaches the upstream API.
- * 4. passthrough.
+ * 1. exact match (full name)
+ * 2. prefix match (longest prefix first)
+ * 3. passthrough
  */
 export function translateModelName(model: string): string {
   const { exact, prefix } = getState().config.model_mappings;
 
-  // Layer 1: exact on the raw name
-  if (exact[model]) return exact[model];
+  // Strip the Claude-Code-only [1m] marker before matching.
+  const name = model.includes("[1m]") ? model.replace("[1m]", "") : model;
 
-  // Layer 2: prefix on the raw name (longest prefix first)
-  const prefixMatch = findPrefixMatch(model, prefix);
+  // Layer 1: exact match
+  if (exact[name]) return exact[name];
+
+  // Layer 2: prefix match (longest prefix first)
+  const prefixMatch = findPrefixMatch(name, prefix);
   if (prefixMatch) return prefixMatch;
 
-  // Layer 3: strip the [1m] marker, then retry exact + prefix on the remainder.
-  if (model.includes("[1m]")) {
-    const stripped = model.replace("[1m]", "");
-    if (exact[stripped]) return exact[stripped];
-    const strippedPrefix = findPrefixMatch(stripped, prefix);
-    if (strippedPrefix) return strippedPrefix;
-    return stripped;
-  }
-
-  // Layer 4: no match, return original
-  return model;
+  // Layer 3: no match, return the (stripped) name
+  return name;
 }
 
 /**

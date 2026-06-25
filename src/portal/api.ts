@@ -84,7 +84,7 @@ function availableMonths(): string[] {
 }
 
 export function dashboardData() {
-  const { config, models, copilot_token, token_expires_at } = getState();
+  const { config, models, github_token, copilot_token, token_expires_at } = getState();
   const data = models?.data ?? [];
   const anthropicCount = data.filter((m) =>
     (m.supported_endpoints ?? []).includes("/v1/messages"),
@@ -94,8 +94,13 @@ export function dashboardData() {
   const errorsToday = today.filter((e) => e.status_code >= 400 || e.error).length;
 
   const nowSec = Date.now() / 1000;
-  const tokenValid = !!copilot_token && nowSec < token_expires_at;
-  const expiresInMin = tokenValid ? Math.max(0, Math.round((token_expires_at - nowSec) / 60)) : 0;
+  // Auth is healthy as long as we have a GitHub token: the short-lived Copilot
+  // token is auto-refreshed from it on demand, so an expired Copilot token is
+  // NOT a problem and must not nag the user to log in. Only a missing GitHub
+  // token actually requires `copilot-proxy login`.
+  const authReady = !!github_token;
+  const copilotValid = !!copilot_token && nowSec < token_expires_at;
+  const expiresInMin = copilotValid ? Math.max(0, Math.round((token_expires_at - nowSec) / 60)) : 0;
 
   const month = readMonthlyUsage(monthStr());
   const ws = config.web_search;
@@ -103,7 +108,7 @@ export function dashboardData() {
   return {
     server: { address: config.address, port: config.port, online: true },
     version: VERSION,
-    token: { valid: tokenValid, expiresInMin },
+    token: { ready: authReady, copilotValid, expiresInMin },
     models: { total: data.length, anthropic: anthropicCount },
     requestsToday: { total: today.length, errors: errorsToday },
     environment: {
