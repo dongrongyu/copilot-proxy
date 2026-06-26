@@ -12,10 +12,11 @@ Runs on Node.js ≥ 20 (or [Bun](https://bun.sh/) in development).
 - **Format translation**: Anthropic ↔ OpenAI, Gemini ↔ OpenAI, and Responses ↔ Chat Completions for models that don't support `/v1/responses` natively (e.g. Claude via Copilot)
 - **Web search fallback** via Tavily or WebIQ — when a model rejects Anthropic's `web_search` tool, the proxy runs the query and injects synthetic `server_tool_use` / `web_search_tool_result` blocks (Anthropic `/v1/messages` only — i.e. Claude Code)
 - **Reasoning effort control** — set one target effort (`low`…`max`) for all thinking requests; the proxy clamps it to the nearest level each model supports. Tunable live via CLI or the web portal, no restart
+- **Web config portal** — a browser UI at `http://127.0.0.1:8989/` for usage/cost, request logs, reasoning effort, web search, model mappings, client setup, and a whole-file `config.yaml` editor; edits hot-reload without a restart
 - **Vision passthrough** — image inputs are forwarded to vision-capable Copilot models
 - **GitHub Device Flow OAuth** — one-time login, tokens persisted locally
-- **Auto-refreshing Copilot token** — the short-lived upstream token is refreshed in the background
-- **Model aliasing** — `claude-opus-4-6` ↔ `claude-opus-4.6`, etc.
+- **Auto-refreshing Copilot token** — the short-lived upstream token is refreshed in the background; only the long-lived GitHub login ever needs your attention
+- **Model aliasing** — configurable `exact` / `prefix` tables map incoming names to Copilot IDs (e.g. `claude-opus-4-6` → `claude-opus-4.6`), shipping with sensible defaults that resolve to each family's strongest model
 - **5-category token tracking** — every request logged with input / cache-creation / cache-read / output / reasoning tokens, duration, status
 - **One-shot client configuration** for Claude Code, Codex, and Gemini CLIs
 - **systemd user service** — install/uninstall as a background service on Linux/WSL
@@ -69,7 +70,7 @@ copilot-proxy config codex     # writes ~/.codex/config.toml
 copilot-proxy config gemini    # writes ~/.gemini/.env + ~/.gemini/settings.json
 ```
 
-Existing settings are **merged**, not overwritten.
+Each picks that client's strongest model by default (Claude → Opus 4.8, Codex → GPT-5.5, Gemini → Gemini 3.1 Pro); you can choose another interactively or on the portal's **Client Setup** page. Existing settings are **merged**, not overwritten.
 
 ### Service management
 
@@ -83,7 +84,13 @@ journalctl --user -u copilot-proxy -f
 
 ## Configuration options
 
-Optional YAML at `~/.copilot-proxy/config.yaml` (auto-generated on first run). Defaults are fine for most users; override `port` / `address` / log level as needed. Environment variable `GITHUB_TOKEN` can be used in place of the interactive login.
+Optional YAML at `~/.copilot-proxy/config.yaml` (auto-generated on first run). Defaults are fine for most users; override `port`, reasoning `effort`, model mappings, or web search as needed. Environment variable `GITHUB_TOKEN` can be used in place of the interactive login.
+
+The file is fully documented inline and can be edited by hand, but most settings are also exposed in the **web config portal** (`http://127.0.0.1:8989/`) — including a whole-file editor (the **Config File** button) that validates and hot-reloads on save. The upstream Copilot host is detected automatically from your account (individual / business / enterprise), so there's nothing to configure for that.
+
+### Model mappings
+
+Incoming model names are translated to Copilot model IDs via two tables in `config.yaml` — `exact` (full-name match) and `prefix` (startsWith match, longest prefix wins). Exact matches take precedence over prefixes. Sensible defaults ship in the generated file (e.g. `opus` → `claude-opus-4.8`, `claude-opus-4-8` → `claude-opus-4.8`, the `[1m]` Claude Code marker is stripped before matching), and you can edit or extend them in the file or on the portal's **Model Mapping** page (saves hot-reload, no restart).
 
 ### Web search fallback (Claude Code only)
 
@@ -123,7 +130,7 @@ copilot-proxy effort max
 copilot-proxy effort status      # show the config-file value AND the running value
 ```
 
-Default is `high`. Setting it via the CLI **applies instantly to the running proxy** (the command calls the proxy's API, which hot-reloads its in-memory value and persists to `config.yaml`) — no restart needed. The same control is available on the web portal's **Reasoning** page. If the proxy isn't running, the CLI just writes `config.yaml` and the value is picked up on next start.
+Default is `xhigh`. Setting it via the CLI **applies instantly to the running proxy** (the command calls the proxy's API, which hot-reloads its in-memory value and persists to `config.yaml`) — no restart needed. The same control is available on the web portal's **Reasoning** page. If the proxy isn't running, the CLI just writes `config.yaml` and the value is picked up on next start.
 
 > **Scope**: effort is injected for models that advertise a `reasoning_effort` capability on:
 > - the Anthropic `/v1/messages` path for thinking requests (Claude Code), and
