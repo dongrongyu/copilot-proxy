@@ -53,7 +53,7 @@ A device-flow code is printed; open the URL in your browser and confirm. Tokens 
 copilot-proxy service install
 ```
 
-This registers a **user-level systemd unit** that starts the proxy on login and restarts it on failure. Verify it's up:
+This registers a **user-level systemd unit** that starts the proxy on login and restarts it on failure. The unit launches the proxy via `npx -y @ascdong/copilot-proxy@latest`, so every start pulls the newest published release — no reinstall needed to pick up an update, and no prior global install required. The tradeoff: start-up does a registry round trip, and if the npm registry is unreachable the service will not start. Verify it's up:
 
 ```bash
 systemctl --user status copilot-proxy

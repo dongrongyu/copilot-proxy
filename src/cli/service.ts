@@ -5,6 +5,7 @@ import { execSync } from "child_process";
 import { loadConfig, getConfigDir } from "../config/loader";
 
 const SERVICE_NAME = "copilot-proxy";
+const PACKAGE_NAME = "@ascdong/copilot-proxy";
 
 function getServiceDir(): string {
   return join(homedir(), ".config", "systemd", "user");
@@ -26,8 +27,34 @@ export async function serviceCommand(action: "install" | "uninstall" | "reinstal
   }
 }
 
+/**
+ * Build the unit's ExecStart line.
+ *
+ * Preference order:
+ *   1. npx — resolves `@latest` from the registry on every start, so the
+ *      service picks up new releases without a manual reinstall, and installs
+ *      the package on a machine that has never had it.
+ *   2. An already-installed `copilot-proxy` on PATH.
+ *   3. The currently-running script under the current runtime (dev checkout).
+ *
+ * Two consequences of preferring npx, both deliberate:
+ *   - Start-up costs a registry round trip (~1.5s warm, longer when a new
+ *     version actually downloads).
+ *   - `@latest` does NOT fall back to the npm cache when the registry is
+ *     unreachable; it exits non-zero and systemd's start limiter eventually
+ *     gives up. Dropping the `@latest` suffix trades "always newest" for
+ *     "starts from cache when offline" if that is the better tradeoff later.
+ */
 function resolveExecStart(port: number, host: string): string {
-  // Prefer the installed bin on PATH — stable across package updates/relocation.
+  // systemd requires an absolute path for the first ExecStart token, so
+  // resolve npx rather than relying on the inherited PATH.
+  try {
+    const npxPath = execSync("which npx", { encoding: "utf-8" }).trim();
+    if (npxPath) {
+      return `${npxPath} -y ${PACKAGE_NAME}@latest start --port ${port} --host ${host}`;
+    }
+  } catch {}
+
   try {
     const binPath = execSync("which copilot-proxy", { encoding: "utf-8" }).trim();
     if (binPath) {
