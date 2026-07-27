@@ -1,5 +1,5 @@
 import { readMonthlyUsage } from "../usage/logger";
-import { estimateCost, formatUsd } from "../usage/pricing";
+import { lookupPrice, formatUsd } from "../usage/pricing";
 
 export async function usageCommand(opts: { month?: string }) {
   const month = opts.month ?? new Date().toISOString().slice(0, 7);
@@ -37,10 +37,12 @@ export async function usageCommand(opts: { month?: string }) {
       `  ${"".padEnd(28)}   reqs |    in |    cc |    cr |   out |     r |     cost`
     );
     for (const [name, m] of models.sort((a, b) => b[1].requests - a[1].requests)) {
-      const est = estimateCost(name, m);
-      const costCell = est.priced ? formatUsd(est.cost) : "-";
-      if (est.priced) {
-        totalCost += est.cost;
+      // m.cost is already the sum of per-request estimates; re-pricing the
+      // aggregated tokens here would mis-tier long-context models.
+      const priced = lookupPrice(name) !== null;
+      const costCell = priced ? formatUsd(m.cost) : "-";
+      if (priced) {
+        totalCost += m.cost;
         pricedModels++;
       } else {
         unpricedModels++;

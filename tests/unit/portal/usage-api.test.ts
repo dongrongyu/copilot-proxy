@@ -25,6 +25,9 @@ function fixtureMonth() {
     by_model: {
       "claude-opus-4.8": {
         requests: 4,
+        // Accumulated per request by readMonthlyUsage, not derived from the
+        // token totals below — so it matches the by_day sum.
+        cost: 9.75,
         input_tokens: 30,
         cache_creation_input_tokens: 12,
         cache_read_input_tokens: 8,
@@ -91,7 +94,9 @@ describe("portal usage api", () => {
     const d = usageData("2026-06");
     const opus = d.by_model.find((m: any) => m.name === "claude-opus-4.8");
     expect(opus).toBeDefined();
-    expect(typeof opus!.cost).toBe("number");
+    // Passed through from the aggregate, NOT re-priced from the summed tokens —
+    // re-pricing would mis-tier long-context models.
+    expect(opus!.cost).toBeCloseTo(9.75, 6);
     expect(opus!.priced).toBe(true);
   });
 

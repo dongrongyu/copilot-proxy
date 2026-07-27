@@ -55,10 +55,12 @@ interface MonthlyUsage {
   month: string;
   total_requests: number;
   totals: CategoryTotals;
-  by_model: Record<string, CategoryTotals & { requests: number }>;
-  // by_day carries a `cost` accumulated per-entry (sum of priced per-model
-  // estimates) so the portal's daily cost line reflects real spend rather than
-  // pricing a date string (which never matches a model).
+  // Both by_model and by_day carry a `cost` accumulated per-entry rather than
+  // priced from the summed tokens. That is required for correctness, not just
+  // tidiness: models with a long-context tier are priced off a single request's
+  // input size, so pricing a summed bundle would push an entire month over the
+  // threshold and bill it all at long-context rates.
+  by_model: Record<string, CategoryTotals & { requests: number; cost: number }>;
   by_day: Record<string, CategoryTotals & { requests: number; cost: number }>;
 }
 
@@ -155,11 +157,23 @@ export function readMonthlyUsage(month: string): MonthlyUsage | null {
       usage.total_requests++;
       addEntryTo(usage.totals, entry);
 
+      // Price this single request. Coerce missing fields to 0 — legacy JSONL
+      // entries may lack cache_*/reasoning fields, and estimateCost on
+      // undefined would yield NaN.
+      const cost = estimateCost(model, {
+        input_tokens: entry.input_tokens ?? 0,
+        cache_creation_input_tokens: entry.cache_creation_input_tokens ?? 0,
+        cache_read_input_tokens: entry.cache_read_input_tokens ?? 0,
+        output_tokens: entry.output_tokens ?? 0,
+        reasoning_tokens: entry.reasoning_tokens ?? 0,
+      }).cost;
+
       if (!usage.by_model[model]) {
-        usage.by_model[model] = { requests: 0, ...emptyCategoryTotals() };
+        usage.by_model[model] = { requests: 0, cost: 0, ...emptyCategoryTotals() };
       }
       const m = usage.by_model[model];
       m.requests++;
+      m.cost += cost;
       addEntryTo(m, entry);
 
       if (!usage.by_day[day]) {
@@ -167,16 +181,8 @@ export function readMonthlyUsage(month: string): MonthlyUsage | null {
       }
       const d = usage.by_day[day];
       d.requests++;
+      d.cost += cost;
       addEntryTo(d, entry);
-      // Price a coerced bundle (legacy JSONL entries may lack cache_*/reasoning
-      // fields; estimateCost on undefined would yield NaN).
-      d.cost += estimateCost(model, {
-        input_tokens: entry.input_tokens ?? 0,
-        cache_creation_input_tokens: entry.cache_creation_input_tokens ?? 0,
-        cache_read_input_tokens: entry.cache_read_input_tokens ?? 0,
-        output_tokens: entry.output_tokens ?? 0,
-        reasoning_tokens: entry.reasoning_tokens ?? 0,
-      }).cost;
     }
   }
 

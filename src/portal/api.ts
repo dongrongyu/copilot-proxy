@@ -19,7 +19,7 @@ import {
   readRequestLogs,
   listLogDates,
 } from "../usage/logger";
-import { estimateCost } from "../usage/pricing";
+import { lookupPrice } from "../usage/pricing";
 import {
   buildClaudeEnv,
   buildGeminiEnv,
@@ -166,8 +166,9 @@ export function usageData(month: string) {
   }
   const by_model = Object.entries(usage.by_model)
     .map(([name, m]) => {
-      const est = estimateCost(name, m);
-      return { name, ...m, cost: est.cost, priced: est.priced };
+      // m.cost is already the sum of per-request estimates; re-pricing the
+      // aggregated tokens here would mis-tier long-context models.
+      return { name, ...m, priced: lookupPrice(name) !== null };
     })
     .sort((a, b) => b.requests - a.requests);
   const by_day = Object.entries(usage.by_day)
