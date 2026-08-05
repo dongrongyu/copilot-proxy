@@ -8,6 +8,12 @@ import { initState, getState } from "../auth/state";
 import { getGitHubToken } from "../auth/github-token";
 import { ensureCopilotToken, fetchModels } from "../auth/copilot-token";
 import { reverseModelName } from "../proxy/model-mapping";
+import {
+  CODEX_CATALOG_FILENAME,
+  buildCodexCatalogForCopilot,
+  type CodexModelCatalog,
+  type PatchedCodexCatalog,
+} from "./codex-catalog";
 
 // Line-buffered stdin reader. A per-call readline.Interface loses buffered
 // data on close(); a shared one throws ERR_USE_AFTER_CLOSE once stdin hits
@@ -307,14 +313,18 @@ export function buildCodexProxyToml(
   baseUrl: string,
   model: string,
   supportedEfforts?: string[] | null,
+  modelCatalogJson?: string | null,
 ): string {
   const effort = pickMaxReasoningEffort(supportedEfforts);
   const effortLine = effort ? `model_reasoning_effort = "${effort}"\n` : "";
+  const catalogLine = modelCatalogJson
+    ? `model_catalog_json = "${modelCatalogJson}"\n`
+    : "";
   return `approval_policy = "never"
 sandbox_mode = "danger-full-access"
 model_provider = "${CODEX_PROVIDER_KEY}"
 model = "${model}"
-${effortLine}
+${catalogLine}${effortLine}
 [model_providers.${CODEX_PROVIDER_KEY}]
 name = "Copilot Proxy"
 base_url = "${baseUrl}/v1"
@@ -401,6 +411,28 @@ function serializeTomlBlocks(blocks: TomlBlocks): string {
   }
 
   return out.join("\n") + "\n";
+}
+
+function removeTomlRootKeys(text: string, keys: Set<string>): string {
+  const blocks = parseTomlBlocks(text);
+  const rootKeyRegex = /^\s*([A-Za-z0-9_-]+)\s*=/;
+  blocks.root = blocks.root.filter((line) => {
+    const match = line.match(rootKeyRegex);
+    return !match?.[1] || !keys.has(match[1]);
+  });
+  return serializeTomlBlocks(blocks);
+}
+
+function removeGeneratedCatalogReference(text: string): string {
+  const blocks = parseTomlBlocks(text);
+  const catalogRegex = /^\s*model_catalog_json\s*=\s*["']([^"']+)["']/;
+  blocks.root = blocks.root.filter((line) => {
+    const match = line.match(catalogRegex);
+    if (!match?.[1]) return true;
+    const filename = match[1].replace(/\\/g, "/").split("/").pop();
+    return filename !== CODEX_CATALOG_FILENAME;
+  });
+  return serializeTomlBlocks(blocks);
 }
 
 /**
@@ -620,6 +652,7 @@ async function configCodex(baseUrl: string, outputPath?: string) {
 
   let tomlContent: string;
   let envHint: { name: string; value?: string } | null = null;
+  let patchedCatalog: PatchedCodexCatalog | null = null;
 
   if (mode === "proxy") {
     // Fetch models from Copilot API
@@ -662,7 +695,24 @@ async function configCodex(baseUrl: string, outputPath?: string) {
     const modelObj = modelList.find((m: any) => m.id === selectedModel);
     const supportedEfforts: string[] | undefined = (modelObj as any)
       ?.capabilities?.supports?.reasoning_effort;
-    tomlContent = buildCodexProxyToml(baseUrl, selectedModel, supportedEfforts);
+    try {
+      patchedCatalog = buildCodexCatalogForCopilot(modelList);
+      if (patchedCatalog.overrides.length > 0) {
+        console.log("\nCodex model limits from the Copilot catalog:");
+        for (const item of patchedCatalog.overrides) {
+          console.log(`  ${item.id}: ${item.contextWindow.toLocaleString()} tokens`);
+        }
+      }
+    } catch (error) {
+      console.warn(`\n[Config] ${String(error)}`);
+      console.warn("[Config] Continuing without a Codex model-catalog override.");
+    }
+    tomlContent = buildCodexProxyToml(
+      baseUrl,
+      selectedModel,
+      supportedEfforts,
+      patchedCatalog ? CODEX_CATALOG_FILENAME : null,
+    );
   } else {
     // AOAI
     const baseUrlInput = await prompt("Base URL (e.g. https://xxx.cognitiveservices.azure.com/openai): ");
@@ -681,7 +731,12 @@ async function configCodex(baseUrl: string, outputPath?: string) {
     envHint = { name: aoaiOpts.envKey };
   }
 
-  const written = writeCodexConfig(tomlContent, pathsToWrite);
+  const written = writeCodexConfig(
+    tomlContent,
+    pathsToWrite,
+    patchedCatalog?.catalog,
+    mode === "aoai",
+  );
   for (const p of written) {
     console.log(`\n[Config] Written: ${p}`);
   }
@@ -924,7 +979,12 @@ export function writeClaudeConfig(
  * buildCodexAoaiToml) to each path, merging into any existing TOML. Returns the
  * paths written.
  */
-export function writeCodexConfig(tomlContent: string, paths: string[]): string[] {
+export function writeCodexConfig(
+  tomlContent: string,
+  paths: string[],
+  modelCatalog?: CodexModelCatalog | null,
+  clearGeneratedModelCatalog = false,
+): string[] {
   const written: string[] = [];
   for (const configPath of paths) {
     mkdirSync(dirname(configPath), { recursive: true });
@@ -932,9 +992,30 @@ export function writeCodexConfig(tomlContent: string, paths: string[]): string[]
     if (existsSync(configPath)) {
       try { existing = readFileSync(configPath, "utf-8"); } catch {}
     }
+    if (modelCatalog && existing) {
+      // The generated catalog carries per-model context and compaction limits.
+      // Remove legacy global overrides so switching models cannot reuse the
+      // selected model's limits (for example 900K compaction on 5.4 mini).
+      existing = removeTomlRootKeys(existing, new Set([
+        "model_context_window",
+        "model_auto_compact_token_limit",
+      ]));
+    }
+    if (clearGeneratedModelCatalog && existing) {
+      existing = removeGeneratedCatalogReference(existing);
+    }
     const merged = existing ? mergeCodexToml(existing, tomlContent) : tomlContent;
+
+    let catalogPath: string | null = null;
+    if (modelCatalog) {
+      catalogPath = join(dirname(configPath), CODEX_CATALOG_FILENAME);
+      writeFileSync(catalogPath, JSON.stringify(modelCatalog, null, 2) + "\n", "utf-8");
+    }
     writeFileSync(configPath, merged, "utf-8");
     written.push(configPath);
+    if (catalogPath) {
+      written.push(catalogPath);
+    }
   }
   return written;
 }

@@ -34,6 +34,11 @@ import {
   writeGeminiConfig,
   type CodexAoaiOptions,
 } from "../cli/config";
+import {
+  CODEX_CATALOG_FILENAME,
+  buildCodexCatalogForCopilot,
+  type CodexModelCatalog,
+} from "../cli/codex-catalog";
 import { VERSION } from "../version";
 
 const KEY_PREVIEW_VISIBLE = 4;
@@ -532,17 +537,39 @@ function targetsFor(target: SetupTarget) {
   return resolveConfigTargets(".gemini", ".env");
 }
 
-function buildTomlFor(target: SetupTarget, url: string, opts: SetupOpts): string {
+interface CodexSetupArtifacts {
+  toml: string;
+  modelCatalog?: CodexModelCatalog;
+  clearGeneratedModelCatalog?: boolean;
+}
+
+function buildCodexSetupArtifacts(url: string, opts: SetupOpts): CodexSetupArtifacts {
   if (opts.codexMode === "aoai") {
     const aoaiOpts: CodexAoaiOptions = {
       baseUrl: (opts.aoaiBaseUrl ?? "").trim(),
       model: (opts.aoaiModel ?? "gpt-5.3-codex").trim() || "gpt-5.3-codex",
       envKey: (opts.aoaiEnvKey ?? "AZURE_OPENAI_API_KEY").trim() || "AZURE_OPENAI_API_KEY",
     };
-    return buildCodexAoaiToml(aoaiOpts);
+    return {
+      toml: buildCodexAoaiToml(aoaiOpts),
+      clearGeneratedModelCatalog: true,
+    };
   }
   const model = opts.model ?? modelsForTarget("codex")[0]?.id ?? "";
-  return buildCodexProxyToml(url, model, reasoningEffortsFor(model));
+  try {
+    const patched = buildCodexCatalogForCopilot(getState().models?.data ?? []);
+    return {
+      toml: buildCodexProxyToml(
+        url,
+        model,
+        reasoningEffortsFor(model),
+        CODEX_CATALOG_FILENAME,
+      ),
+      modelCatalog: patched.catalog,
+    };
+  } catch {
+    return { toml: buildCodexProxyToml(url, model, reasoningEffortsFor(model)) };
+  }
 }
 
 /** Metadata + live config preview for the Client Setup page. */
@@ -569,7 +596,7 @@ export function setupPreview(target: SetupTarget, opts: SetupOpts) {
     filename = "~/.gemini/.env";
     language = "bash";
   } else {
-    content = buildTomlFor("codex", url, opts);
+    content = buildCodexSetupArtifacts(url, opts).toml;
     filename = "~/.codex/config.toml";
     language = "toml";
   }
@@ -617,8 +644,16 @@ export function applySetup(
     if (opts.codexMode === "aoai" && !(opts.aoaiBaseUrl ?? "").trim()) {
       return { ok: false, error: "Azure OpenAI base URL is required." };
     }
-    const toml = buildTomlFor("codex", url, opts);
-    return { ok: true, written: writeCodexConfig(toml, paths) };
+    const artifacts = buildCodexSetupArtifacts(url, opts);
+    return {
+      ok: true,
+      written: writeCodexConfig(
+        artifacts.toml,
+        paths,
+        artifacts.modelCatalog,
+        artifacts.clearGeneratedModelCatalog,
+      ),
+    };
   } catch (err) {
     return { ok: false, error: String(err) };
   }

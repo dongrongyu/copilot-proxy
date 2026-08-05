@@ -150,6 +150,17 @@ describe("Config Utilities", () => {
       expect(toml).toContain(`model_reasoning_effort = "xhigh"`);
     });
 
+    test("references a generated model catalog when provided", () => {
+      const toml = buildCodexProxyToml(
+        "http://x",
+        "gpt-5.6-sol",
+        ["high", "max"],
+        "copilot-proxy-models.json",
+      );
+      expect(toml).toContain(`model_catalog_json = "copilot-proxy-models.json"`);
+      expect(toml).toContain(`model_reasoning_effort = "max"`);
+    });
+
     test("prefers max when the model advertises it", () => {
       const toml = buildCodexProxyToml("http://x", "claude-opus-4.8", [
         "medium",

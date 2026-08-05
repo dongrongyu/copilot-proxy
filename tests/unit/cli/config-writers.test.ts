@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from "fs";
-import { join } from "path";
+import { dirname, join } from "path";
 import { tmpdir } from "os";
 import {
   writeClaudeConfig,
@@ -66,6 +66,62 @@ describe("Config writers (non-interactive, portal-shared)", () => {
       const content = readFileSync(p, "utf-8");
       expect(content).toContain("mcp_servers.foo");
       expect(content).toContain('model = "gpt-5"');
+    });
+
+    test("writes a generated model catalog next to config.toml", () => {
+      const p = join(dir, ".codex", "config.toml");
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(
+        p,
+        'model_context_window = 272000\nmodel_auto_compact_token_limit = 240000\nfoo = "keep"\n',
+        "utf-8",
+      );
+      const toml = buildCodexProxyToml(
+        "http://localhost:8989",
+        "gpt-5.6-sol",
+        ["max"],
+        "copilot-proxy-models.json",
+      );
+      const catalog = {
+        models: [{
+          slug: "gpt-5.6-sol",
+          context_window: 1_050_000,
+          max_context_window: 1_050_000,
+        }],
+      };
+
+      const written = writeCodexConfig(toml, [p], catalog);
+      const catalogPath = join(dir, ".codex", "copilot-proxy-models.json");
+      expect(written).toEqual([p, catalogPath]);
+      expect(JSON.parse(readFileSync(catalogPath, "utf-8"))).toEqual(catalog);
+      expect(readFileSync(p, "utf-8")).toContain(
+        'model_catalog_json = "copilot-proxy-models.json"',
+      );
+      expect(readFileSync(p, "utf-8")).toContain('foo = "keep"');
+      expect(readFileSync(p, "utf-8")).not.toContain("model_context_window");
+      expect(readFileSync(p, "utf-8")).not.toContain("model_auto_compact_token_limit");
+    });
+
+    test("AOAI setup removes only the generated proxy catalog reference", () => {
+      const generated = join(dir, "generated", "config.toml");
+      mkdirSync(dirname(generated), { recursive: true });
+      writeFileSync(
+        generated,
+        'model_catalog_json = "copilot-proxy-models.json"\nfoo = "keep"\n',
+        "utf-8",
+      );
+      writeCodexConfig('model = "aoai-model"\n', [generated], null, true);
+      const generatedContent = readFileSync(generated, "utf-8");
+      expect(generatedContent).not.toContain("model_catalog_json");
+      expect(generatedContent).toContain('foo = "keep"');
+
+      const custom = join(dir, "custom", "config.toml");
+      mkdirSync(dirname(custom), { recursive: true });
+      writeFileSync(custom, 'model_catalog_json = "my-models.json"\n', "utf-8");
+      writeCodexConfig('model = "aoai-model"\n', [custom], null, true);
+      expect(readFileSync(custom, "utf-8")).toContain(
+        'model_catalog_json = "my-models.json"',
+      );
     });
   });
 
