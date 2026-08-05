@@ -1,6 +1,8 @@
 import { getState } from "./state";
-
-const GITHUB_API_BASE = "https://api.github.com";
+import {
+  getConfiguredCopilotApiBaseUrl,
+  getGitHubApiBaseUrl as configuredGitHubApiBaseUrl,
+} from "./github-endpoints";
 
 function getGitHubHeaders(): Record<string, string> {
   const state = getState();
@@ -17,9 +19,17 @@ function getGitHubHeaders(): Record<string, string> {
 }
 
 export function getCopilotBaseUrl(): string {
-  // The upstream host comes from the token response (endpoints.api), captured on
-  // refresh. Fall back to the individual-plan host before the first refresh.
-  return getState().copilot_base_url || "https://api.githubcopilot.com";
+  const state = getState();
+  // An explicit GHE data-residency endpoint takes precedence. Otherwise use
+  // the account-appropriate host returned by the token response.
+  if (state.config.copilot_api_base_url) {
+    return getConfiguredCopilotApiBaseUrl(state.config);
+  }
+  return state.copilot_base_url || getConfiguredCopilotApiBaseUrl(state.config);
+}
+
+export function getGitHubApiBaseUrl(): string {
+  return configuredGitHubApiBaseUrl(getState().config);
 }
 
 let _refreshPromise: Promise<void> | null = null;
@@ -38,7 +48,7 @@ export async function refreshCopilotToken(): Promise<void> {
   _refreshPromise = (async () => {
     try {
       console.log("[Auth] Refreshing Copilot token...");
-      const resp = await fetch(`${GITHUB_API_BASE}/copilot_internal/v2/token`, {
+      const resp = await fetch(`${getGitHubApiBaseUrl()}/copilot_internal/v2/token`, {
         headers: getGitHubHeaders(),
       });
 

@@ -6,6 +6,8 @@ describe("Config Schema", () => {
   test("DEFAULT_CONFIG has all required fields", () => {
     expect(DEFAULT_CONFIG.address).toBe("localhost");
     expect(DEFAULT_CONFIG.port).toBe(8989);
+    expect(DEFAULT_CONFIG.github_api_base_url).toBe("");
+    expect(DEFAULT_CONFIG.copilot_api_base_url).toBe("");
     expect(DEFAULT_CONFIG.vscode_version).toBe("1.93.0");
     expect(DEFAULT_CONFIG.api_version).toBe("2025-04-01");
     expect(DEFAULT_CONFIG.copilot_version).toBe("0.26.7");

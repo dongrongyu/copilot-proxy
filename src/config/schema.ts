@@ -49,6 +49,8 @@ export const DEFAULT_MODEL_MAPPINGS: ModelMappingsConfig = {
 export interface Config {
   address: string;
   port: number;
+  github_api_base_url: string;
+  copilot_api_base_url: string;
   vscode_version: string;
   api_version: string;
   copilot_version: string;
@@ -67,6 +69,8 @@ export interface Config {
 export const DEFAULT_CONFIG: Config = {
   address: "localhost",
   port: 8989,
+  github_api_base_url: "",
+  copilot_api_base_url: "",
   vscode_version: "1.93.0",
   api_version: "2025-04-01",
   copilot_version: "0.26.7",

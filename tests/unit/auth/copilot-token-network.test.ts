@@ -36,6 +36,23 @@ describe("Copilot Token - Network Functions", () => {
     expect(getState().token_expires_at).toBeGreaterThan(0);
   });
 
+  test("refreshCopilotToken uses the configured GHE API", async () => {
+    let requestedUrl = "";
+    getState().config.github_api_base_url = "https://api.msft.ghe.com";
+    globalThis.fetch = (async (url: string) => {
+      requestedUrl = url;
+      return {
+        ok: true,
+        json: async () => ({ token: "ghe-cp-token", refresh_in: 1800 }),
+      };
+    }) as any;
+
+    await refreshCopilotToken();
+    expect(requestedUrl).toBe(
+      "https://api.msft.ghe.com/copilot_internal/v2/token",
+    );
+  });
+
   test("refreshCopilotToken throws on failure", async () => {
     globalThis.fetch = (async () => ({
       ok: false,
@@ -114,5 +131,19 @@ describe("Copilot Token - Network Functions", () => {
     getState().token_expires_at = Date.now() / 1000 + 3600;
     await fetchModels();
     // Should not throw, models stays null
+  });
+
+  test("fetchModels uses the configured GHE Copilot API", async () => {
+    let requestedUrl = "";
+    getState().config.copilot_api_base_url = "https://copilot-api.msft.ghe.com";
+    getState().copilot_token = "valid";
+    getState().token_expires_at = Date.now() / 1000 + 3600;
+    globalThis.fetch = (async (url: string) => {
+      requestedUrl = url;
+      return { ok: true, json: async () => ({ data: [] }) };
+    }) as any;
+
+    await fetchModels();
+    expect(requestedUrl).toBe("https://copilot-api.msft.ghe.com/models");
   });
 });

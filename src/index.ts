@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { startServer } from "./cli/start";
-import { loginCommand } from "./cli/login";
+import { configureGheEndpoint, loginCommand } from "./cli/login";
 import { configCommand } from "./cli/config";
 import { usageCommand } from "./cli/usage";
 import { logsCommand } from "./cli/logs";
@@ -9,6 +9,7 @@ import { serviceCommand } from "./cli/service";
 import { webSearchCommand } from "./cli/web-search";
 import { effortCommand } from "./cli/effort";
 import { VERSION } from "./version";
+import { MSFT_GHE_ENDPOINT } from "./auth/github-endpoints";
 
 const program = new Command();
 
@@ -16,7 +17,17 @@ program
   .name("copilot-proxy")
   .description("GitHub Copilot Model API Proxy — expose Copilot as OpenAI/Anthropic-compatible endpoints")
   .version(VERSION, "-V, --version", "show version")
+  .option("--msft-ghe-endpoint", "use the Microsoft GHE tenant (https://msft.ghe.com)")
   .helpOption("-h, --help", "show help");
+
+function useMsftGheEndpoint(local: {
+  msftGheEndpoint?: boolean;
+} = {}): boolean {
+  const global = program.opts() as {
+    msftGheEndpoint?: boolean;
+  };
+  return Boolean(local.msftGheEndpoint || global.msftGheEndpoint);
+}
 
 program
   .command("start")
@@ -28,7 +39,10 @@ program
 program
   .command("login")
   .description("sign in to GitHub via Device Flow OAuth")
-  .action(loginCommand);
+  .option("--msft-ghe-endpoint", "sign in through https://msft.ghe.com")
+  .action((opts) => loginCommand({
+    gheEndpoint: useMsftGheEndpoint(opts) ? MSFT_GHE_ENDPOINT : undefined,
+  }));
 
 program
   .command("config <target>")
@@ -75,6 +89,8 @@ program
 program.addHelpText("after", `
 Examples:
   $ copilot-proxy login                 sign in with your GitHub account
+  $ copilot-proxy login --msft-ghe-endpoint
+                                        sign in through msft.ghe.com
   $ copilot-proxy start                 run the proxy (default http://127.0.0.1:8989)
   $ copilot-proxy start -p 8080         run on a custom port
   $ copilot-proxy config claude         wire Claude Code to this proxy
@@ -89,6 +105,20 @@ Examples:
   $ copilot-proxy usage -m 2026-04      show token usage for April 2026
   $ copilot-proxy service install       install as a systemd user service
 `);
+
+program.action((opts) => {
+  if (!useMsftGheEndpoint(opts)) {
+    program.outputHelp();
+    return;
+  }
+  try {
+    configureGheEndpoint(MSFT_GHE_ENDPOINT);
+    console.log("Run 'copilot-proxy login' to sign in through this tenant.");
+  } catch (error) {
+    console.error(`Failed to configure GHE endpoint: ${error}`);
+    process.exitCode = 1;
+  }
+});
 
 // Default to showing help when no command is given
 if (process.argv.length <= 2) {

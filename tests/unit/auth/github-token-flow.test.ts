@@ -38,6 +38,36 @@ describe("GitHub Token - Device Flow", () => {
     expect(token).toBe("gho_test_token_123");
   });
 
+  test("GHE Device Flow uses the configured tenant for both requests", async () => {
+    const urls: string[] = [];
+    globalThis.fetch = (async (url: string) => {
+      urls.push(url);
+      if (url.endsWith("/login/device/code")) {
+        return {
+          ok: true,
+          json: async () => ({
+            device_code: "dc_ghe",
+            user_code: "MSFT-CODE",
+            verification_uri: "https://msft.ghe.com/login/device",
+            interval: 0,
+            expires_in: 60,
+          }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ access_token: "ghe_token" }),
+      };
+    }) as any;
+
+    const token = await loginWithDeviceFlow("https://api.msft.ghe.com");
+    expect(token).toBe("ghe_token");
+    expect(urls).toEqual([
+      "https://msft.ghe.com/login/device/code",
+      "https://msft.ghe.com/login/oauth/access_token",
+    ]);
+  });
+
   test("loginWithDeviceFlow handles authorization_pending", async () => {
     let pollCount = 0;
     globalThis.fetch = (async (url: string) => {

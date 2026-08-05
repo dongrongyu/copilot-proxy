@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { getConfigDir } from "../config/loader";
-import { getState } from "./state";
+import {
+  DEFAULT_GITHUB_API_BASE_URL,
+  getGitHubWebBaseUrl,
+} from "./github-endpoints";
 
 const GITHUB_OAUTH_CLIENT_ID = "01ab8ac9400c4e429b23";
 const GITHUB_OAUTH_SCOPE = "read:user copilot";
@@ -31,11 +34,14 @@ export function getGitHubToken(): string {
   );
 }
 
-export async function loginWithDeviceFlow(): Promise<string> {
-  console.log("[Auth] Starting GitHub Device Flow...");
+export async function loginWithDeviceFlow(
+  githubApiBaseUrl = DEFAULT_GITHUB_API_BASE_URL,
+): Promise<string> {
+  const githubWebBaseUrl = getGitHubWebBaseUrl(githubApiBaseUrl);
+  console.log(`[Auth] Starting GitHub Device Flow on ${githubWebBaseUrl}...`);
 
   // Step 1: Request device code
-  const codeResp = await fetch("https://github.com/login/device/code", {
+  const codeResp = await fetch(`${githubWebBaseUrl}/login/device/code`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -70,7 +76,7 @@ export async function loginWithDeviceFlow(): Promise<string> {
     await new Promise((r) => setTimeout(r, interval));
 
     const tokenResp = await fetch(
-      "https://github.com/login/oauth/access_token",
+      `${githubWebBaseUrl}/login/oauth/access_token`,
       {
         method: "POST",
         headers: {

@@ -47,6 +47,12 @@ copilot-proxy login
 
 A device-flow code is printed; open the URL in your browser and confirm. Tokens are persisted under `~/.copilot-proxy/`.
 
+For Microsoft's GHE.com tenant, use:
+
+```bash
+copilot-proxy login --msft-ghe-endpoint
+```
+
 ### 4. Install as a background service
 
 ```bash
@@ -147,7 +153,7 @@ copilot-proxy <command> [options]
 
 Commands:
   start [-p <port>] [-H <host>]        start the proxy server (foreground)
-  login                                sign in to GitHub via Device Flow OAuth
+  login [--msft-ghe-endpoint]          sign in via GitHub or msft.ghe.com
   config <claude|codex|gemini>         configure a client tool
          [-o <path>]                   override the settings output path
   usage [-m <YYYY-MM>]                 show token usage statistics

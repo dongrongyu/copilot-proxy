@@ -1,7 +1,12 @@
 import { describe, expect, test, beforeEach } from "bun:test";
 import { initState, getState } from "../../../src/auth/state";
 import { DEFAULT_CONFIG } from "../../../src/config/schema";
-import { getCopilotBaseUrl, supportsDirectAnthropicApi, supportsResponsesApi } from "../../../src/auth/copilot-token";
+import {
+  getCopilotBaseUrl,
+  getGitHubApiBaseUrl,
+  supportsDirectAnthropicApi,
+  supportsResponsesApi,
+} from "../../../src/auth/copilot-token";
 
 describe("Copilot Token Utilities", () => {
   beforeEach(() => {
@@ -22,6 +27,23 @@ describe("Copilot Token Utilities", () => {
     test("returns the business host when that is what the token reported", () => {
       getState().copilot_base_url = "https://api.business.githubcopilot.com";
       expect(getCopilotBaseUrl()).toBe("https://api.business.githubcopilot.com");
+    });
+
+    test("configured GHE Copilot endpoint takes precedence", () => {
+      getState().copilot_base_url = "https://api.business.githubcopilot.com";
+      getState().config.copilot_api_base_url = "https://copilot-api.msft.ghe.com/";
+      expect(getCopilotBaseUrl()).toBe("https://copilot-api.msft.ghe.com");
+    });
+  });
+
+  describe("getGitHubApiBaseUrl", () => {
+    test("uses github.com by default", () => {
+      expect(getGitHubApiBaseUrl()).toBe("https://api.github.com");
+    });
+
+    test("uses a configured GHE API endpoint", () => {
+      getState().config.github_api_base_url = "https://api.msft.ghe.com/";
+      expect(getGitHubApiBaseUrl()).toBe("https://api.msft.ghe.com");
     });
   });
 

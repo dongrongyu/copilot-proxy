@@ -86,6 +86,11 @@ export const DEFAULT_CONFIG_TEMPLATE = `# Copilot Proxy Configuration
 # Server Settings
 port: 8989
 
+# Optional GitHub Enterprise Cloud data-residency endpoints.
+# Configure both with: copilot-proxy --msft-ghe-endpoint
+github_api_base_url: ""
+copilot_api_base_url: ""
+
 # Connection retry settings
 max_connection_retries: 3
 
@@ -279,6 +284,53 @@ export function updateEffortConfig(value: string): string {
   const configPath = getConfigPath();
   const text = readFileSync(configPath, "utf-8");
   const next = setEffortField(text, value);
+  if (next !== text) writeFileSync(configPath, next, "utf-8");
+  return configPath;
+}
+
+export interface UpstreamEndpointUpdate {
+  github_api_base_url: string;
+  copilot_api_base_url: string;
+}
+
+/** Update top-level upstream endpoint scalars while preserving the YAML file. */
+export function setUpstreamEndpointFields(
+  text: string,
+  updates: UpstreamEndpointUpdate,
+): string {
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const lines = text.split(/\r?\n/);
+  const remaining = new Map(Object.entries(updates));
+
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i]!.match(
+      /^(github_api_base_url|copilot_api_base_url)\s*:\s*(.*)$/,
+    );
+    if (!match || !remaining.has(match[1]!)) continue;
+    const key = match[1]! as keyof UpstreamEndpointUpdate;
+    const commentMatch = match[2]!.match(/\s+(#.*)$/);
+    const comment = commentMatch ? `        ${commentMatch[1]}` : "";
+    lines[i] = `${key}: ${formatYamlValue(updates[key])}${comment}`;
+    remaining.delete(key);
+  }
+
+  if (remaining.size > 0) {
+    while (lines.length > 0 && lines[lines.length - 1]!.trim() === "") lines.pop();
+    lines.push("", "# GitHub upstream endpoints");
+    for (const [key, value] of remaining) {
+      lines.push(`${key}: ${formatYamlValue(value)}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join(eol);
+}
+
+export function updateUpstreamEndpoints(updates: UpstreamEndpointUpdate): string {
+  ensureConfigFile();
+  const configPath = getConfigPath();
+  const text = readFileSync(configPath, "utf-8");
+  const next = setUpstreamEndpointFields(text, updates);
   if (next !== text) writeFileSync(configPath, next, "utf-8");
   return configPath;
 }

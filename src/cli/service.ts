@@ -2,7 +2,7 @@ import { existsSync, writeFileSync, unlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { execSync } from "child_process";
-import { loadConfig, getConfigDir } from "../config/loader";
+import { loadConfig } from "../config/loader";
 
 const SERVICE_NAME = "copilot-proxy";
 const PACKAGE_NAME = "@ascdong/copilot-proxy";
@@ -81,14 +81,11 @@ function installService() {
 
   const execStart = resolveExecStart(config.port, config.address);
 
-  // Read GitHub token for env
-  const tokenPath = join(getConfigDir(), "github_token.txt");
+  // File-based logins are read by the proxy at startup. Only carry through an
+  // explicitly supplied environment token; embedding the token file here
+  // would make a later `login` keep using the stale value from the unit.
   let tokenEnv = "";
-  if (existsSync(tokenPath)) {
-    const { readFileSync } = require("fs");
-    const token = readFileSync(tokenPath, "utf-8").trim();
-    if (token) tokenEnv = `Environment=GITHUB_TOKEN=${token}`;
-  } else if (process.env.GITHUB_TOKEN) {
+  if (process.env.GITHUB_TOKEN) {
     tokenEnv = `Environment=GITHUB_TOKEN=${process.env.GITHUB_TOKEN}`;
   }
 
