@@ -696,7 +696,7 @@ async function configCodex(baseUrl: string, outputPath?: string) {
     const supportedEfforts: string[] | undefined = (modelObj as any)
       ?.capabilities?.supports?.reasoning_effort;
     try {
-      patchedCatalog = buildCodexCatalogForCopilot(modelList);
+      patchedCatalog = buildCodexCatalogForCopilot(modelList, selectedModel);
       if (patchedCatalog.overrides.length > 0) {
         console.log("\nCodex model limits from the Copilot catalog:");
         for (const item of patchedCatalog.overrides) {

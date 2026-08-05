@@ -557,7 +557,10 @@ function buildCodexSetupArtifacts(url: string, opts: SetupOpts): CodexSetupArtif
   }
   const model = opts.model ?? modelsForTarget("codex")[0]?.id ?? "";
   try {
-    const patched = buildCodexCatalogForCopilot(getState().models?.data ?? []);
+    const patched = buildCodexCatalogForCopilot(
+      getState().models?.data ?? [],
+      model,
+    );
     return {
       toml: buildCodexProxyToml(
         url,

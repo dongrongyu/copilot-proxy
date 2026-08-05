@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  codexCatalogCommands,
   codexAutoCompactLimit,
+  loadBundledCodexCatalogFromCommands,
   patchCodexCatalogForCopilot,
 } from "../../../src/cli/codex-catalog";
 
@@ -159,5 +161,71 @@ describe("Codex model catalog overrides", () => {
   test("rejects an invalid or empty catalog", () => {
     expect(() => patchCodexCatalogForCopilot({}, [])).toThrow("models array");
     expect(() => patchCodexCatalogForCopilot({ models: [] }, [])).toThrow("at least one");
+  });
+
+  test("falls back to Windows Codex when the WSL PATH shim fails", () => {
+    const commands = [
+      { label: "Codex", command: "codex", args: ["debug", "models", "--bundled"] },
+      {
+        label: "Windows Codex",
+        command: "cmd.exe",
+        args: ["/d", "/c", "codex.cmd", "debug", "models", "--bundled"],
+      },
+    ];
+    const calls: string[] = [];
+    const catalog = loadBundledCodexCatalogFromCommands(commands, (spec) => {
+      calls.push(spec.label);
+      if (spec.label === "Codex") {
+        throw new Error("Missing optional dependency @openai/codex-linux-x64");
+      }
+      return JSON.stringify({ models: [{ slug: "gpt-5.6-sol" }] });
+    });
+
+    expect(calls).toEqual(["Codex", "Windows Codex"]);
+    expect(catalog.models[0]?.slug).toBe("gpt-5.6-sol");
+  });
+
+  test("uses cmd.exe directly on native Windows", () => {
+    const commands = codexCatalogCommands("win32");
+    expect(commands).toHaveLength(1);
+    expect(commands[0]?.label).toBe("Windows Codex");
+    expect(commands[0]?.args).toEqual([
+      "/d", "/c", "codex.cmd", "debug", "models", "--bundled",
+    ]);
+  });
+
+  test("skips an older catalog that lacks the selected model", () => {
+    const commands = [
+      { label: "Older Codex", command: "old", args: [] },
+      { label: "Current Codex", command: "current", args: [] },
+    ];
+    const catalog = loadBundledCodexCatalogFromCommands(
+      commands,
+      (spec) => spec.label === "Older Codex"
+        ? JSON.stringify({ models: [{ slug: "gpt-5.5" }] })
+        : JSON.stringify({ models: [{ slug: "gpt-5.6-sol" }] }),
+      "gpt-5.6-sol",
+    );
+    expect(catalog.models[0]?.slug).toBe("gpt-5.6-sol");
+  });
+
+  test("explains when installed Codex catalogs lack the selected model", () => {
+    const commands = [{ label: "Windows Codex", command: "cmd.exe", args: [] }];
+    expect(() => loadBundledCodexCatalogFromCommands(
+      commands,
+      () => JSON.stringify({ models: [{ slug: "gpt-5.5" }] }),
+      "gpt-5.6-sol",
+    )).toThrow("catalog does not include gpt-5.6-sol");
+  });
+
+  test("reports all catalog command failures", () => {
+    const commands = [
+      { label: "Codex", command: "codex", args: [] },
+      { label: "Windows Codex", command: "cmd.exe", args: [] },
+    ];
+    expect(() => loadBundledCodexCatalogFromCommands(commands, (spec) => {
+      if (spec.label === "Codex") return "not json";
+      throw new Error("command not found");
+    })).toThrow(/Codex: invalid JSON.*Windows Codex: command not found/);
   });
 });

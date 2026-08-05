@@ -1,4 +1,5 @@
 import { execFileSync } from "child_process";
+import { existsSync } from "fs";
 import type { CopilotModel } from "../auth/state";
 
 export const CODEX_CATALOG_FILENAME = "copilot-proxy-models.json";
@@ -22,6 +23,17 @@ export interface PatchedCodexCatalog {
   catalog: CodexModelCatalog;
   overrides: CodexModelLimitOverride[];
 }
+
+export interface CodexCatalogCommand {
+  label: string;
+  command: string;
+  args: string[];
+  cwd?: string;
+}
+
+type CodexCatalogCommandRunner = (spec: CodexCatalogCommand) => string;
+
+const BUNDLED_CATALOG_ARGS = ["debug", "models", "--bundled"];
 
 function positiveInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value > 0
@@ -108,35 +120,124 @@ export function patchCodexCatalogForCopilot(
   return { catalog, overrides };
 }
 
+function runCatalogCommand(spec: CodexCatalogCommand): string {
+  return execFileSync(spec.command, spec.args, {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 15_000,
+    maxBuffer: 16 * 1024 * 1024,
+    cwd: spec.cwd,
+  });
+}
+
+/**
+ * Candidate commands for reading Codex's bundled catalog. WSL inherits Windows
+ * PATH entries, where the extensionless npm shim runs Linux Node against a
+ * Windows-only install. If the normal command fails, invoke codex.cmd through
+ * Windows cmd.exe so Windows Node selects the win32 optional dependency.
+ */
+export function codexCatalogCommands(
+  platform = process.platform,
+): CodexCatalogCommand[] {
+  const windowsRoot = platform === "win32"
+    ? (process.env.SystemRoot || process.env.WINDIR)
+    : (existsSync("/mnt/c/Windows") ? "/mnt/c/Windows" : undefined);
+  const windowsCmd = platform === "win32"
+    ? (process.env.ComSpec || "cmd.exe")
+    : (existsSync("/mnt/c/Windows/System32/cmd.exe")
+      ? "/mnt/c/Windows/System32/cmd.exe"
+      : "cmd.exe");
+  const windowsSpec: CodexCatalogCommand = {
+    label: "Windows Codex",
+    command: windowsCmd,
+    args: ["/d", "/c", "codex.cmd", ...BUNDLED_CATALOG_ARGS],
+    cwd: windowsRoot,
+  };
+
+  if (platform === "win32") return [windowsSpec];
+  return [
+    {
+      label: "Codex",
+      command: "codex",
+      args: [...BUNDLED_CATALOG_ARGS],
+    },
+    windowsSpec,
+  ];
+}
+
+function shortError(error: unknown): string {
+  const stderr = (error as { stderr?: unknown } | null)?.stderr;
+  const stderrText = Buffer.isBuffer(stderr)
+    ? stderr.toString("utf-8")
+    : (typeof stderr === "string" ? stderr : "");
+  if (stderrText) {
+    const lines = stderrText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const useful = lines.find((line) => line.startsWith("Error:"))
+      || lines.find((line) => /not recognized|not found|missing optional dependency/i.test(line))
+      || lines[0];
+    if (useful) return useful;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return message.split(/\r?\n/, 1)[0] || String(error);
+}
+
+export function loadBundledCodexCatalogFromCommands(
+  commands: CodexCatalogCommand[],
+  run: CodexCatalogCommandRunner = runCatalogCommand,
+  requiredModel?: string,
+): CodexModelCatalog {
+  const failures: string[] = [];
+  for (const spec of commands) {
+    let output: string;
+    try {
+      output = run(spec);
+    } catch (error) {
+      failures.push(`${spec.label}: ${shortError(error)}`);
+      continue;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(output);
+    } catch (error) {
+      failures.push(`${spec.label}: invalid JSON (${shortError(error)})`);
+      continue;
+    }
+
+    if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as any).models)) {
+      failures.push(`${spec.label}: response has no models array`);
+      continue;
+    }
+    const catalog = parsed as CodexModelCatalog;
+    if (
+      requiredModel
+      && !catalog.models.some((model) => model.slug === requiredModel)
+    ) {
+      failures.push(`${spec.label}: catalog does not include ${requiredModel}`);
+      continue;
+    }
+    return catalog;
+  }
+
+  const details = failures.length > 0 ? ` (${failures.join("; ")})` : "";
+  throw new Error(`Unable to read the bundled Codex model catalog${details}`);
+}
+
 /** Load the official catalog bundled with the installed Codex CLI. */
-export function loadBundledCodexCatalog(): CodexModelCatalog {
-  let output: string;
-  try {
-    output = execFileSync("codex", ["debug", "models", "--bundled"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 15_000,
-      maxBuffer: 16 * 1024 * 1024,
-    });
-  } catch (error) {
-    throw new Error(`Unable to read the bundled Codex model catalog: ${String(error)}`);
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(output);
-  } catch (error) {
-    throw new Error(`Codex returned an invalid model catalog: ${String(error)}`);
-  }
-
-  if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as any).models)) {
-    throw new Error("Codex returned a model catalog without a models array");
-  }
-  return parsed as CodexModelCatalog;
+export function loadBundledCodexCatalog(requiredModel?: string): CodexModelCatalog {
+  return loadBundledCodexCatalogFromCommands(
+    codexCatalogCommands(),
+    runCatalogCommand,
+    requiredModel,
+  );
 }
 
 export function buildCodexCatalogForCopilot(
   copilotModels: CopilotModel[],
+  requiredModel?: string,
 ): PatchedCodexCatalog {
-  return patchCodexCatalogForCopilot(loadBundledCodexCatalog(), copilotModels);
+  return patchCodexCatalogForCopilot(
+    loadBundledCodexCatalog(requiredModel),
+    copilotModels,
+  );
 }
