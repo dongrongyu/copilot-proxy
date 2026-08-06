@@ -177,15 +177,16 @@ Run `copilot-proxy --help` for the full listing with examples.
 ### `logs` — inspect requests
 
 ```
-[13:34:22] 200  claude-opus-4.7          /v1/messages       1 in   12 cc   84 cr  938 out   0 r  21.2s
- │          │    │                        │                  │      │       │      │         └─ reasoning tokens
- │          │    │                        │                  │      │       │      └─ output tokens
- │          │    │                        │                  │      │       └─ cache read tokens
- │          │    │                        │                  │      └─ cache creation tokens
- │          │    │                        │                  └─ fresh input tokens
- │          │    │                        └─ endpoint
- │          │    └─ model (translated name when aliased)
- │          └─ HTTP status
+[13:34:22] 200  claude-opus-4.7          /v1/messages         xhigh       1 in     12 cc     84 cr    938 out     0 r  21.2s
+ │         │    │                        │                    │           │         │         │         │         └─ reasoning tokens
+ │         │    │                        │                    │           │         │         │         └─ output tokens
+ │         │    │                        │                    │           │         │         └─ cache read tokens
+ │         │    │                        │                    │           │         └─ cache creation tokens
+ │         │    │                        │                    │           └─ fresh input tokens
+ │         │    │                        │                    └─ reasoning effort sent upstream (blank when the model supports none)
+ │         │    │                        └─ endpoint
+ │         │    └─ model (translated name when aliased)
+ │         └─ HTTP status
  └─ request time
 ```
 
