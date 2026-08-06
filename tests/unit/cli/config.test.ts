@@ -9,6 +9,8 @@ import {
   mergeCodexToml,
   pickMaxReasoningEffort,
   claudeDisplayName,
+  isClaudeCodeUsableModel,
+  claudeCodeModelList,
 } from "../../../src/cli/config";
 
 describe("Config Utilities", () => {
@@ -313,8 +315,10 @@ key = "value"
       { id: "claude-opus-4.5", vendor: "Anthropic", capabilities: { limits: { max_context_window_tokens: 200000 } } },
       { id: "claude-opus-4.6-1m", vendor: "Anthropic", capabilities: { limits: { max_context_window_tokens: 1000000 } } },
       { id: "claude-opus-4.8", vendor: "Anthropic", capabilities: { limits: { max_context_window_tokens: 1000000 } } },
+      { id: "claude-haiku-4.5", vendor: "Anthropic", capabilities: { limits: { max_context_window_tokens: 200000 } } },
       { id: "gemini-3.1-pro-preview", vendor: "Google", capabilities: { limits: { max_context_window_tokens: 1000000 } } },
       { id: "gpt-5.5", vendor: "OpenAI", capabilities: { limits: { max_context_window_tokens: 1050000 } } },
+      { id: "gpt-5.6-sol", vendor: "OpenAI", capabilities: { limits: { max_context_window_tokens: 1050000 } } },
     ];
 
     test("appends [1m] for Anthropic 1M models without -1m suffix", () => {
@@ -328,11 +332,15 @@ key = "value"
 
     test("leaves Anthropic model untagged when context < 1M", () => {
       expect(claudeDisplayName("claude-opus-4.5", catalog)).toBe("claude-opus-4.5");
+      expect(claudeDisplayName("claude-haiku-4.5", catalog)).toBe("claude-haiku-4.5");
     });
 
-    test("never tags non-Anthropic vendors even if they advertise 1M context", () => {
-      expect(claudeDisplayName("gemini-3.1-pro-preview", catalog)).toBe("gemini-3.1-pro-preview");
-      expect(claudeDisplayName("gpt-5.5", catalog)).toBe("gpt-5.5");
+    test("tags 1M-context models regardless of vendor", () => {
+      // The [1m] marker only affects Claude Code's local context budget; the
+      // proxy strips it before the upstream request, so it is vendor-agnostic.
+      expect(claudeDisplayName("gpt-5.5", catalog)).toBe("gpt-5.5[1m]");
+      expect(claudeDisplayName("gpt-5.6-sol", catalog)).toBe("gpt-5.6-sol[1m]");
+      expect(claudeDisplayName("gemini-3.1-pro-preview", catalog)).toBe("gemini-3.1-pro-preview[1m]");
     });
 
     test("falls back to reverseModelName for models not in catalog", () => {
@@ -344,6 +352,75 @@ key = "value"
 
     test("does not double-tag if id already ends with [1m]", () => {
       expect(claudeDisplayName("claude-opus-4.8[1m]", catalog)).toBe("claude-opus-4.8[1m]");
+    });
+  });
+
+  describe("isClaudeCodeUsableModel", () => {
+    const catalog = [
+      { id: "claude-opus-4.8", supported_endpoints: ["/v1/messages", "/chat/completions"] },
+      { id: "gpt-5.6-sol", supported_endpoints: ["/responses"] },
+      { id: "gpt-5.4", supported_endpoints: ["/chat/completions", "/responses"] },
+      { id: "gpt-4o", supported_endpoints: [] },
+      { id: "gemini-3.1-pro-preview", supported_endpoints: ["/chat/completions"] },
+      { id: "grok-code-fast-1", supported_endpoints: ["/chat/completions"] },
+    ];
+
+    test("accepts Claude ids with a usable endpoint", () => {
+      expect(isClaudeCodeUsableModel("claude-opus-4.8", catalog)).toBe(true);
+    });
+    test("accepts GPT ids exposing only /responses", () => {
+      expect(isClaudeCodeUsableModel("gpt-5.6-sol", catalog)).toBe(true);
+      expect(isClaudeCodeUsableModel("gpt-5.4", catalog)).toBe(true);
+    });
+    test("rejects ids with an empty supported_endpoints (dead legacy GPT)", () => {
+      expect(isClaudeCodeUsableModel("gpt-4o", catalog)).toBe(false);
+    });
+    test("rejects non-Claude/non-GPT vendors even with a usable endpoint", () => {
+      expect(isClaudeCodeUsableModel("gemini-3.1-pro-preview", catalog)).toBe(false);
+      expect(isClaudeCodeUsableModel("grok-code-fast-1", catalog)).toBe(false);
+    });
+    test("rejects ids absent from the catalog", () => {
+      expect(isClaudeCodeUsableModel("gpt-5.6-sol", [])).toBe(false);
+      expect(isClaudeCodeUsableModel("claude-opus-4.8", undefined)).toBe(false);
+    });
+  });
+
+  describe("claudeCodeModelList", () => {
+    const catalog = [
+      { id: "claude-opus-4.8", supported_endpoints: ["/v1/messages", "/chat/completions"] },
+      { id: "claude-opus-4.5", supported_endpoints: ["/v1/messages"] },
+      { id: "claude-sonnet-4.6", supported_endpoints: ["/v1/messages", "/chat/completions"] },
+      { id: "claude-haiku-4.5", supported_endpoints: ["/v1/messages"] },
+      { id: "gpt-5.6-sol", supported_endpoints: ["/responses"] },
+      { id: "gpt-5.4", supported_endpoints: ["/chat/completions", "/responses"] },
+      { id: "gpt-4o", supported_endpoints: [] },
+      { id: "gemini-3.1-pro-preview", supported_endpoints: ["/chat/completions"] },
+      { id: "grok-code-fast-1", supported_endpoints: ["/chat/completions"] },
+    ];
+    const ids = filterAndSortModels(catalog.map((m) => m.id));
+
+    test("includes both Claude and GPT ids", () => {
+      const list = claudeCodeModelList(ids, catalog);
+      expect(list).toContain("claude-opus-4.8");
+      expect(list).toContain("gpt-5.6-sol");
+      expect(list).toContain("gpt-5.4");
+    });
+    test("excludes Gemini and grok ids", () => {
+      const list = claudeCodeModelList(ids, catalog);
+      expect(list).not.toContain("gemini-3.1-pro-preview");
+      expect(list).not.toContain("grok-code-fast-1");
+    });
+    test("excludes ids with an empty supported_endpoints (gpt-4o)", () => {
+      expect(claudeCodeModelList(ids, catalog)).not.toContain("gpt-4o");
+    });
+    test("index 0 is the strongest Opus (default-Enter selects it)", () => {
+      expect(claudeCodeModelList(ids, catalog)[0]).toBe("claude-opus-4.8");
+    });
+    test("keeps Claude ids before GPT ids", () => {
+      const list = claudeCodeModelList(ids, catalog);
+      const firstGpt = list.findIndex((id) => id.startsWith("gpt-"));
+      const lastClaude = list.map((id) => id.startsWith("claude-")).lastIndexOf(true);
+      expect(lastClaude).toBeLessThan(firstGpt);
     });
   });
 });

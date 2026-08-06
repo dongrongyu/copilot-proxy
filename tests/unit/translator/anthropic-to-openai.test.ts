@@ -161,14 +161,16 @@ describe("Anthropic to OpenAI Translation", () => {
   });
 
   describe("other fields", () => {
-    test("passes through temperature, top_p, max_tokens", () => {
+    test("passes through temperature and top_p; max_tokens becomes max_completion_tokens", () => {
       const result = translateAnthropicToOpenai({
         model: "test", messages: [{ role: "user", content: "hi" }],
         temperature: 0.5, top_p: 0.9, max_tokens: 100,
       });
       expect(result.temperature).toBe(0.5);
       expect(result.top_p).toBe(0.9);
-      expect(result.max_tokens).toBe(100);
+      // GPT-5.x rejects the legacy `max_tokens` spelling with a bare 400.
+      expect(result.max_completion_tokens).toBe(100);
+      expect(result.max_tokens).toBeUndefined();
     });
 
     test("stop_sequences -> stop", () => {

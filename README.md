@@ -10,7 +10,8 @@ Runs on Node.js ≥ 20 (or [Bun](https://bun.sh/) in development).
 - **Anthropic-compatible**: `POST /v1/messages`, `/v1/messages/count_tokens` (streaming + non-streaming)
 - **Gemini-compatible**: `POST /v1beta/models/{model}:generateContent` / `:streamGenerateContent` / `:countTokens`, plus `GET /v1beta/models` for CLI preflight
 - **Format translation**: Anthropic ↔ OpenAI, Gemini ↔ OpenAI, and Responses ↔ Chat Completions for models that don't support `/v1/responses` natively (e.g. Claude via Copilot)
-- **Web search fallback** via Tavily or WebIQ — when a model rejects Anthropic's `web_search` tool, the proxy runs the query and injects synthetic `server_tool_use` / `web_search_tool_result` blocks (Anthropic `/v1/messages` only — i.e. Claude Code)
+- **Run Claude Code on a GPT model** — `config claude` lists Claude *and* GPT models; pick `gpt-5.6-sol` and Claude Code drives it end to end, tool calls included. The proxy translates the full Anthropic tool-use protocol to and from whichever upstream API the model actually serves (`/responses` for the GPT-5.5/5.6 line, `/chat/completions` otherwise)
+- **Web search fallback** via Tavily or WebIQ — Anthropic's `web_search` is a server-side tool no Copilot model implements, so the proxy runs the query itself and injects synthetic `server_tool_use` / `web_search_tool_result` blocks. Works on Claude *and* GPT models (Anthropic `/v1/messages` only — i.e. Claude Code)
 - **Reasoning effort control** — set one target effort (`low`…`max`) for all thinking requests; the proxy clamps it to the nearest level each model supports. Tunable live via CLI or the web portal, no restart
 - **Web config portal** — a browser UI at `http://127.0.0.1:8989/` for usage/cost, request logs, reasoning effort, web search, model mappings, client setup, and a whole-file `config.yaml` editor; edits hot-reload without a restart
 - **Vision passthrough** — image inputs are forwarded to vision-capable Copilot models
@@ -76,7 +77,9 @@ copilot-proxy config codex     # writes ~/.codex/config.toml
 copilot-proxy config gemini    # writes ~/.gemini/.env + ~/.gemini/settings.json
 ```
 
-Each picks that client's strongest model by default (Claude → Opus 4.8, Codex → GPT-5.5, Gemini → Gemini 3.1 Pro); you can choose another interactively or on the portal's **Client Setup** page. Existing settings are **merged**, not overwritten.
+Each picks that client's strongest model by default (Claude → Opus 5, Codex → GPT-5.5, Gemini → Gemini 3.1 Pro); you can choose another interactively or on the portal's **Client Setup** page. Existing settings are **merged**, not overwritten.
+
+`config claude` offers **GPT models alongside Claude ones** — select e.g. `gpt-5.6-sol[1m]` and Claude Code runs on it, with tool calls, multi-turn sessions, and web search all working. The one thing you lose is the thinking display: Copilot does not emit reasoning content for GPT models, so the model still reasons (and reasoning tokens are still billed and logged) but Claude Code has nothing to render.
 
 ### Service management
 
@@ -100,7 +103,9 @@ Incoming model names are translated to Copilot model IDs via two tables in `conf
 
 ### Web search fallback (Claude Code only)
 
-When a model rejects Anthropic's `web_search` tool, the proxy can transparently run the query through a search provider and synthesize `server_tool_use` / `web_search_tool_result` blocks so the client still gets a normal Anthropic-shaped response.
+Anthropic's `web_search` is a *server-side* tool — no Copilot model implements it. The proxy fills the gap: it runs the query through a search provider itself and synthesizes `server_tool_use` / `web_search_tool_result` blocks, so the client still gets a normal Anthropic-shaped response.
+
+On non-Claude models (GPT, Gemini) the search runs up front, because those models can never satisfy the tool; the tool is also stripped before translation so it never reaches the model as a parameterless function. On Claude models the proxy forwards `web_search` as-is and only steps in if the upstream rejects it.
 
 > **This only applies to the Anthropic `/v1/messages` endpoint** — in practice, **Claude Code**. The OpenAI and Gemini endpoints do not have an equivalent `web_search` tool, so this fallback never triggers for Codex or Gemini CLI.
 
@@ -185,11 +190,6 @@ Run `copilot-proxy --help` for the full listing with examples.
 ```
 
 Request logs live at `~/.copilot-proxy/logs/requests/YYYY-MM-DD.jsonl` (180-day retention by default; cleanup runs on server startup).
-
-## References
-
-- [sxwxs/ghc-api](https://github.com/sxwxs/ghc-api)
-- [Joouis/agent-maestro](https://github.com/Joouis/agent-maestro)
 
 ## License
 

@@ -26,6 +26,7 @@ import {
   buildCodexProxyToml,
   buildCodexAoaiToml,
   claudeDisplayName,
+  claudeCodeModelList,
   filterAndSortModels,
   pickBestModel,
   resolveConfigTargets,
@@ -509,17 +510,23 @@ function modelsForTarget(target: SetupTarget): { id: string; display: string }[]
   const catalog = models?.data ?? [];
   const ids = filterAndSortModels(catalog.map((m) => m.id));
 
-  const family = target === "claude" ? "claude" : target === "gemini" ? "gemini" : "gpt";
-  const prefix = target === "claude" ? "claude-" : target === "gemini" ? "gemini-" : "gpt-";
+  // Claude Code offers Claude + GPT models it can run on; the shared
+  // claudeCodeModelList helper filters and hoists the strongest Opus to index 0.
+  if (target === "claude") {
+    return claudeCodeModelList(ids, catalog).map((id) => ({
+      id,
+      display: claudeDisplayName(id, catalog),
+    }));
+  }
+
+  const family = target === "gemini" ? "gemini" : "gpt";
+  const prefix = target === "gemini" ? "gemini-" : "gpt-";
   let familyIds = ids.filter((id) => id.toLowerCase().startsWith(prefix));
 
   // Surface the strongest model first (defaults to choices[0] in the UI).
   const best = pickBestModel(family, familyIds);
   if (best) familyIds = [best, ...familyIds.filter((id) => id !== best)];
 
-  if (target === "claude") {
-    return familyIds.map((id) => ({ id, display: claudeDisplayName(id, catalog) }));
-  }
   return familyIds.map((id) => ({ id, display: id }));
 }
 

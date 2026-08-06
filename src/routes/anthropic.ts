@@ -8,6 +8,7 @@ import {
   ensureCopilotToken,
   getCopilotBaseUrl,
   supportsDirectAnthropicApi,
+  supportsResponsesApi,
 } from "../auth/copilot-token";
 import {
   getAnthropicHeaders,
@@ -34,10 +35,16 @@ import {
 } from "../proxy/web-search";
 import { translateAnthropicToOpenai } from "../translator/anthropic-to-openai";
 import { translateOpenaiToAnthropic } from "../translator/openai-to-anthropic";
+import { chatToResponsesRequest } from "../translator/chat-to-responses";
+import {
+  ResponsesChunkState,
+  responsesEventToChatChunks,
+  finalizeResponsesStream,
+  responsesToChatResponse,
+} from "../translator/responses-to-anthropic-chunks";
 import {
   AnthropicStreamState,
   translateChunkToAnthropicEvents,
-  reconstructOpenaiResponse,
 } from "../translator/streaming";
 import { logRequest, type RequestLogEntry } from "../usage/logger";
 
@@ -167,10 +174,15 @@ anthropicRouter.post("/v1/messages", async (c) => {
   if (useDirect) {
     console.log(`[Anthropic] Direct path for: ${translatedModel}`);
     return handleDirectAnthropic(c, payload, requestId, startTime, originalModel, translatedModel);
-  } else {
-    console.log(`[Anthropic] Translation path for: ${translatedModel}`);
-    return handleTranslatedAnthropic(c, payload, requestId, startTime, originalModel, translatedModel);
   }
+
+  // Copilot's strongest GPT models are served on /responses only and reject
+  // /chat/completions outright, so the upstream shape is picked per model.
+  const mode: TranslatedMode = supportsResponsesApi(translatedModel) ? "responses" : "chat";
+  console.log(`[Anthropic] Translation path (${mode}) for: ${translatedModel}`);
+  return handleTranslatedAnthropic(
+    c, payload, requestId, startTime, originalModel, translatedModel, mode
+  );
 });
 
 async function handleDirectAnthropic(
@@ -356,9 +368,49 @@ function streamDirectAnthropic(
   });
 }
 
+/**
+ * Which upstream wire format a non-Anthropic model is reached through.
+ * Copilot serves its strongest GPT models on /responses only; the rest of the
+ * translated models take /chat/completions.
+ */
+type TranslatedMode = "chat" | "responses";
+
+/**
+ * Build the upstream request for a translated (non-Anthropic) model.
+ *
+ * Both modes start from the same Anthropic -> chat translation; the Responses
+ * mode then converts that at the boundary, so the Anthropic translator stays
+ * shared and untouched.
+ */
+function buildTranslatedRequest(
+  anthropicPayload: any,
+  model: string,
+  mode: TranslatedMode,
+  enableVision: boolean,
+): { body: any; headers: Record<string, string>; effort: string } {
+  const chat = translateAnthropicToOpenai(anthropicPayload);
+
+  const isAgent = chat.messages?.some(
+    (m: any) => m.role === "assistant" || m.role === "tool"
+  );
+  const headers = getCopilotHeaders(enableVision);
+  headers["X-Initiator"] = isAgent ? "agent" : "user";
+
+  // Unlike the direct path this does not gate on `thinking` being present:
+  // GPT-5.x reasons unconditionally, so gating there would mean the configured
+  // effort never applied whenever the client had thinking switched off.
+  // configuredEffortForModel already returns "" for models with no such
+  // capability, which is the real gate.
+  const effort = configuredEffortForModel(model);
+  if (effort) chat.reasoning_effort = effort;
+
+  const body = mode === "responses" ? chatToResponsesRequest(chat) : chat;
+  return { body, headers, effort };
+}
+
 async function handleTranslatedAnthropic(
   c: any, anthropicPayload: any, requestId: string, startTime: number,
-  originalModel: string, translatedModel: string
+  originalModel: string, translatedModel: string, mode: TranslatedMode
 ) {
   const state = getState();
   const messages = anthropicPayload.messages ?? [];
@@ -367,38 +419,54 @@ async function handleTranslatedAnthropic(
   const maxRetries = 3;
   let webSearchMeta: WebSearchFallbackResult | null = null;
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const openaiPayload = translateAnthropicToOpenai(currentPayload);
-    const isAgent = openaiPayload.messages?.some(
-      (m: any) => m.role === "assistant" || m.role === "tool"
-    );
-    const headers = getCopilotHeaders(enableVision);
-    headers["X-Initiator"] = isAgent ? "agent" : "user";
+  // No non-Anthropic model implements Anthropic's server-side web_search, so
+  // run the search up front rather than waiting for a rejection that may never
+  // come. This also strips the tool before translation — it carries no
+  // input_schema and would otherwise reach the model as a parameterless
+  // function.
+  if (state.config.web_search.enabled && hasWebSearchTool(currentPayload)) {
+    console.log(`[Anthropic] Web search (translated path) for ${requestId}`);
+    webSearchMeta = await applyWebSearchFallback(currentPayload);
+    currentPayload = webSearchMeta.payload;
+  }
 
-    if (anthropicPayload.stream) {
-      return streamTranslatedAnthropic(
-        c, openaiPayload, headers, requestId, startTime, originalModel, translatedModel, webSearchMeta
-      );
-    }
+  const url = mode === "responses"
+    ? `${getCopilotBaseUrl()}/v1/responses`
+    : `${getCopilotBaseUrl()}/chat/completions`;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const { body, headers, effort } = buildTranslatedRequest(
+      currentPayload, translatedModel, mode, enableVision
+    );
 
     try {
-      const resp = await fetchUpstream(
-        `${getCopilotBaseUrl()}/chat/completions`,
-        { method: "POST", headers, body: JSON.stringify(openaiPayload) }
-      );
+      // The request is issued before the streaming branch so that retries,
+      // web-search fallback and orphaned-tool_result repair apply to streaming
+      // and non-streaming alike.
+      const resp = await fetchUpstream(url, {
+        method: "POST", headers, body: JSON.stringify(body),
+      });
+
+      if (body.stream && resp.ok && resp.body) {
+        return streamTranslatedAnthropic(
+          c, resp, mode, requestId, startTime, originalModel, translatedModel,
+          webSearchMeta, effort
+        );
+      }
 
       if (resp.ok) {
-        const openaiResp = await resp.json();
-        const anthropicResp = translateOpenaiToAnthropic(openaiResp) as any;
+        const upstream = await resp.json() as any;
+        const chatShaped = mode === "responses" ? responsesToChatResponse(upstream) : upstream;
+        const anthropicResp = translateOpenaiToAnthropic(chatShaped) as any;
         if (webSearchMeta) {
           const searchBlocks = buildWebSearchResponseBlocks(webSearchMeta.query, webSearchMeta.results);
           anthropicResp.content = [...searchBlocks, ...(anthropicResp.content ?? [])];
         }
-        const usage = (openaiResp as any).usage ?? {};
+        const usage = chatShaped.usage ?? {};
         const cachedTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
         const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
         logRequest({
-          ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime),
+          ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime, effort),
           input_tokens: Math.max(0, (usage.prompt_tokens ?? 0) - cachedTokens),
           output_tokens: Math.max(0, (usage.completion_tokens ?? 0) - reasoningTokens),
           cache_read_input_tokens: cachedTokens,
@@ -410,7 +478,9 @@ async function handleTranslatedAnthropic(
 
       const errorText = await resp.text();
 
-      if (state.config.web_search.enabled && hasWebSearchTool(currentPayload) &&
+      // Only reachable when the proactive pass above was skipped (web search
+      // disabled at request time, or the tool appeared after a retry).
+      if (!webSearchMeta && state.config.web_search.enabled && hasWebSearchTool(currentPayload) &&
           isWebSearchUnsupportedError(resp.status, errorText)) {
         webSearchMeta = await applyWebSearchFallback(currentPayload);
         currentPayload = webSearchMeta.payload;
@@ -429,7 +499,7 @@ async function handleTranslatedAnthropic(
       }
 
       logRequest({
-        ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime),
+        ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime, effort),
         duration_ms: Date.now() - startTime,
         status_code: resp.status, error: errorText.slice(0, 500),
       } as RequestLogEntry);
@@ -437,7 +507,7 @@ async function handleTranslatedAnthropic(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logRequest({
-        ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime),
+        ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime, effort),
         duration_ms: Date.now() - startTime, status_code: 504, error: msg,
       } as RequestLogEntry);
       return c.json({ type: "error", error: { type: "api_error", message: msg } }, 504);
@@ -448,9 +518,10 @@ async function handleTranslatedAnthropic(
 }
 
 function streamTranslatedAnthropic(
-  c: any, openaiPayload: any, headers: Record<string, string>,
+  c: any, resp: Response, mode: TranslatedMode,
   requestId: string, startTime: number, originalModel: string, translatedModel: string,
-  webSearchMeta: WebSearchFallbackResult | null = null
+  webSearchMeta: WebSearchFallbackResult | null = null,
+  effort = ""
 ) {
   return stream(c, async (s) => {
     c.header("Content-Type", "text/event-stream");
@@ -459,22 +530,33 @@ function streamTranslatedAnthropic(
     c.header("X-Accel-Buffering", "no");
 
     const sState = new AnthropicStreamState();
-    const chunks: any[] = [];
+    // Responses events are adapted into chat-completion chunks first, so the
+    // Anthropic stream translator below is shared by both modes.
+    const rState = mode === "responses" ? new ResponsesChunkState() : null;
     let searchBlocksEmitted = false;
 
-    try {
-      const resp = await fetchUpstream(
-        `${getCopilotBaseUrl()}/chat/completions`,
-        { method: "POST", headers, body: JSON.stringify(openaiPayload) }
-      );
+    const emit = async (chunk: any) => {
+      for (const evt of translateChunkToAnthropicEvents(chunk, sState)) {
+        await s.write(`event: ${evt.type}\ndata: ${JSON.stringify(evt)}\n\n`);
 
-      if (!resp.ok || !resp.body) {
-        const errText = await resp.text();
-        await s.write(`event: error\ndata: ${JSON.stringify({ type: "error", error: { type: "api_error", message: errText } })}\n\n`);
-        return;
+        // Emit synthetic web search blocks right after message_start
+        if (evt.type === "message_start" && webSearchMeta && !searchBlocksEmitted) {
+          searchBlocksEmitted = true;
+          const searchBlocks = buildWebSearchResponseBlocks(webSearchMeta.query, webSearchMeta.results);
+          let idx = 0;
+          for (const block of searchBlocks) {
+            await s.write(`event: content_block_start\ndata: ${JSON.stringify({ type: "content_block_start", index: idx, content_block: block })}\n\n`);
+            await s.write(`event: content_block_stop\ndata: ${JSON.stringify({ type: "content_block_stop", index: idx })}\n\n`);
+            idx++;
+          }
+          // Adjust the stream state index to account for injected blocks
+          sState.contentBlockIndex = searchBlocks.length - 1;
+        }
       }
+    };
 
-      const reader = resp.body.getReader();
+    try {
+      const reader = resp.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
 
@@ -488,38 +570,27 @@ function streamTranslatedAnthropic(
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6);
-          if (data === "[DONE]") break;
+          const data = line.slice(6).trim();
+          if (!data || data === "[DONE]") continue;
 
-          try {
-            const chunk = JSON.parse(data);
-            chunks.push(chunk);
-            const events = translateChunkToAnthropicEvents(chunk, sState);
-            for (const evt of events) {
-              await s.write(`event: ${evt.type}\ndata: ${JSON.stringify(evt)}\n\n`);
+          let parsed: any;
+          try { parsed = JSON.parse(data); } catch { continue; }
 
-              // Emit synthetic web search blocks right after message_start
-              if (evt.type === "message_start" && webSearchMeta && !searchBlocksEmitted) {
-                searchBlocksEmitted = true;
-                const searchBlocks = buildWebSearchResponseBlocks(webSearchMeta.query, webSearchMeta.results);
-                let idx = 0;
-                for (const block of searchBlocks) {
-                  await s.write(`event: content_block_start\ndata: ${JSON.stringify({ type: "content_block_start", index: idx, content_block: block })}\n\n`);
-                  await s.write(`event: content_block_stop\ndata: ${JSON.stringify({ type: "content_block_stop", index: idx })}\n\n`);
-                  idx++;
-                }
-                // Adjust the stream state index to account for injected blocks
-                sState.contentBlockIndex = searchBlocks.length - 1;
-              }
-            }
-          } catch {}
+          const chunks = rState ? responsesEventToChatChunks(parsed, rState) : [parsed];
+          for (const chunk of chunks) await emit(chunk);
         }
+      }
+
+      // A Responses stream that ends without response.completed would otherwise
+      // leave the client waiting on message_stop forever.
+      if (rState) {
+        for (const chunk of finalizeResponsesStream(rState)) await emit(chunk);
       }
     } catch (err) {
       console.error(`[Stream Translated] Error: ${err}`);
     } finally {
       logRequest({
-        ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime),
+        ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime, effort),
         input_tokens: sState.totalInputTokens,
         output_tokens: sState.totalOutputTokens,
         cache_creation_input_tokens: sState.cacheCreationInputTokens,

@@ -187,17 +187,21 @@ export function pickBestModel(family: "claude" | "gpt" | "gemini", ids: string[]
 }
 
 // Threshold for tagging a model as 1M-context in Claude Code config.
-// Claude Code reads the `[1m]` suffix to enable Anthropic's 1M-context beta
-// (`anthropic-beta: context-1m-2025-08-07`). That beta header is meaningless
-// for non-Anthropic vendors, so tagging Gemini / OpenAI / Experimental models
-// with `[1m]` would either be silently ignored or rejected upstream.
+// Claude Code reads the `[1m]` suffix on ANTHROPIC_MODEL to raise its local
+// context budget to 1M; without it Claude Code auto-compacts around 200k. We
+// append it to any 1M-capable model — Claude or GPT alike. This is safe for
+// non-Anthropic models because the marker never reaches the upstream wire
+// request: `translateModelName` (src/proxy/model-mapping.ts) strips `[1m]`
+// before matching, and the non-Claude request path builds headers via
+// `getCopilotHeaders`, which sets neither `anthropic-version` nor forwards a
+// client `anthropic-beta` header (only the Claude `/v1/messages` path, via
+// `getAnthropicHeaders`, sends `anthropic-version`).
 const ONE_M_CONTEXT_THRESHOLD = 1_000_000;
 
 /**
- * Build the model id Claude Code should see — appends `[1m]` only when:
- *   1. The model is from Anthropic (the `[1m]` marker drives an
- *      Anthropic-specific beta header), AND
- *   2. The catalog reports a context window of 1M+ tokens.
+ * Build the model id Claude Code should see — appends `[1m]` whenever the
+ * catalog reports a context window of 1M+ tokens, regardless of vendor, so
+ * Claude Code raises its context budget instead of auto-compacting at ~200k.
  *
  * Falls back to `reverseModelName` (which tags by `-1m` / `-1m-internal`
  * suffix) for any model not found in the catalog.
@@ -209,14 +213,60 @@ export function claudeDisplayName(
   const entry = catalog?.find((m) => m.id === copilotId);
   if (!entry) return reverseModelName(copilotId);
 
-  const isAnthropic = entry.vendor === "Anthropic";
   const ctx = entry.capabilities?.limits?.max_context_window_tokens;
   const has1M = typeof ctx === "number" && ctx >= ONE_M_CONTEXT_THRESHOLD;
 
-  if (isAnthropic && has1M) {
+  if (has1M) {
     return copilotId.endsWith("[1m]") ? copilotId : `${copilotId}[1m]`;
   }
   return copilotId;
+}
+
+// Endpoints that let Claude Code drive a model through this proxy. Claude
+// models expose `/v1/messages` (+ `/chat/completions`); the live GPT-5 line
+// exposes `/responses` and/or `/chat/completions`.
+//
+// Requiring one of these is a positive-capability filter, NOT a liveness test.
+// The gpt-4 era ids (gpt-4o, gpt-4.1, gpt-3.5-turbo, ...) advertise an EMPTY
+// `supported_endpoints` array yet still answer on /chat/completions — they are
+// simply too old to be described by the current catalog. They are kept out of
+// the picker deliberately: they carry no declared endpoints, no reasoning-effort
+// ladder, and no row in the token-billing price table (so usage would report as
+// unpriced), and they predate the tool-use fidelity an agentic client needs.
+const CLAUDE_CODE_MODEL_ENDPOINTS = ["/v1/messages", "/chat/completions", "/responses"];
+
+/**
+ * Whether Claude Code should be offered `id` through this proxy. The selected
+ * id is written verbatim into ANTHROPIC_MODEL and passed through by the proxy,
+ * so the test is: a Claude or GPT id whose catalog entry declares at least one
+ * chat/response endpoint. Ids absent from the catalog, or whose entry declares
+ * no endpoints, are excluded — see CLAUDE_CODE_MODEL_ENDPOINTS for why that is
+ * a curation choice rather than a capability check.
+ */
+export function isClaudeCodeUsableModel(
+  id: string,
+  catalog?: Array<{ id: string; supported_endpoints?: string[] }>,
+): boolean {
+  if (!(id.startsWith("claude-") || id.startsWith("gpt-"))) return false;
+  const entry = catalog?.find((m) => m.id === id);
+  const endpoints = entry?.supported_endpoints ?? [];
+  return CLAUDE_CODE_MODEL_ENDPOINTS.some((e) => endpoints.includes(e));
+}
+
+/**
+ * Build the ordered model list the Claude Code config picker should offer.
+ * `ids` must already be run through `filterAndSortModels` (Claude before
+ * non-Claude). Keeps only ids Claude Code can run on (isClaudeCodeUsableModel),
+ * then hoists the strongest Opus to index 0 so pressing Enter selects it.
+ */
+export function claudeCodeModelList(
+  ids: string[],
+  catalog?: Array<{ id: string; supported_endpoints?: string[] }>,
+): string[] {
+  let list = ids.filter((id) => isClaudeCodeUsableModel(id, catalog));
+  const best = pickBestModel("claude", list);
+  if (best) list = [best, ...list.filter((id) => id !== best)];
+  return list;
 }
 
 /**
@@ -554,15 +604,14 @@ async function configClaude(baseUrl: string, outputPath?: string) {
     process.exit(1);
   }
 
-  console.log("\nAvailable Claude models from Copilot API:\n");
-  // For Claude Code config, only show Claude models, strongest first so the
+  console.log("\nAvailable models for Claude Code from Copilot API:\n");
+  // For Claude Code config, offer both Claude and GPT models that Claude Code
+  // can run on (see isClaudeCodeUsableModel), strongest Opus first so the
   // default selection [1] is the best model.
-  let claudeModels = modelNames.filter((id: string) => id.startsWith("claude-"));
-  const bestClaude = pickBestModel("claude", claudeModels);
-  if (bestClaude) claudeModels = [bestClaude, ...claudeModels.filter((id) => id !== bestClaude)];
+  const claudeModels = claudeCodeModelList(modelNames, modelList);
 
   if (claudeModels.length === 0) {
-    console.error("No Claude models found. Please check your Copilot subscription.");
+    console.error("No models found for Claude Code. Please check your Copilot subscription.");
     process.exit(1);
   }
 
