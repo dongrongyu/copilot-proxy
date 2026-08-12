@@ -61,8 +61,8 @@ describe("login command endpoint selection", () => {
     return yaml.load(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
   }
 
-  async function runLogin(mode: LoginMode) {
-    const proc = Bun.spawn(["bun", "run", FIXTURE_PATH, mode], {
+  async function runCommand(command: string[]) {
+    const proc = Bun.spawn(command, {
       cwd: REPOSITORY_ROOT,
       env: {
         ...process.env,
@@ -80,6 +80,14 @@ describe("login command endpoint selection", () => {
       stdout: await stdoutPromise,
       stderr: await stderrPromise,
     };
+  }
+
+  function runLogin(mode: LoginMode) {
+    return runCommand(["bun", "run", FIXTURE_PATH, mode]);
+  }
+
+  function runEntryPoint(...args: string[]) {
+    return runCommand(["bun", "run", "src/index.ts", ...args]);
   }
 
   test("plain login ignores persisted GHE endpoints", async () => {
@@ -128,5 +136,25 @@ describe("login command endpoint selection", () => {
     expect(result.exitCode).toBe(1);
     expect(readFileSync(configPath, "utf-8")).toBe(originalConfig);
     expect(existsSync(join(configDir, "github_token.txt"))).toBe(false);
+  });
+
+  test("login reports success only after endpoint persistence", async () => {
+    seedEndpoints(GHE_ENDPOINTS);
+
+    const result = await runLogin("public");
+
+    const endpointsSavedIndex = result.stdout.indexOf("GitHub endpoints saved to:");
+    const successIndex = result.stdout.indexOf("[Auth] GitHub login successful!");
+    expect(endpointsSavedIndex).toBeGreaterThan(-1);
+    expect(successIndex).toBeGreaterThan(endpointsSavedIndex);
+  });
+
+  test("standalone MSFT GHE setup points to the flagged login command", async () => {
+    const result = await runEntryPoint("--msft-ghe-endpoint");
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      "Run 'copilot-proxy login --msft-ghe-endpoint' to sign in through this tenant.",
+    );
   });
 });

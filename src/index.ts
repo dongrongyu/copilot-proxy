@@ -113,7 +113,9 @@ program.action((opts) => {
   }
   try {
     configureGheEndpoint(MSFT_GHE_ENDPOINT);
-    console.log("Run 'copilot-proxy login' to sign in through this tenant.");
+    console.log(
+      "Run 'copilot-proxy login --msft-ghe-endpoint' to sign in through this tenant.",
+    );
   } catch (error) {
     console.error(`Failed to configure GHE endpoint: ${error}`);
     process.exitCode = 1;

@@ -52,6 +52,7 @@ export async function loginCommand(options: LoginOptions = {}) {
     const configPath = persistUpstreamEndpoints(endpoints);
     console.log(`\nGitHub token saved to: ${tokenPath}`);
     console.log(`GitHub endpoints saved to: ${configPath}`);
+    console.log("[Auth] GitHub login successful!");
     console.log("If using systemd, run: copilot-proxy service reinstall");
   } catch (err) {
     console.error(`Login failed: ${err}`);

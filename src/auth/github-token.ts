@@ -97,7 +97,6 @@ export async function loginWithDeviceFlow(
     };
 
     if (tokenData.access_token) {
-      console.log("[Auth] GitHub login successful!");
       return tokenData.access_token;
     }
 
