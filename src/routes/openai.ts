@@ -8,6 +8,7 @@ import { getCopilotHeaders, hasVisionContent, isAgentCall } from "../proxy/heade
 import { translateModelName } from "../proxy/model-mapping";
 import { fetchUpstream } from "../proxy/request";
 import { adjustResponsesReasoningForModel } from "../proxy/reasoning-effort";
+import { forwardSSEStream } from "../proxy/sse";
 import { logRequest, type RequestLogEntry } from "../usage/logger";
 import {
   translateResponsesToChat,
@@ -214,32 +215,17 @@ openaiRouter.post("/v1/responses", async (c) => {
         c.header("Cache-Control", "no-cache");
         c.header("Connection", "keep-alive");
 
-        const reader = resp.body!.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
         let usage: any = {};
 
         try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-            for (const line of lines) {
-              if (!line) continue;
-              if (line.startsWith("data: ")) {
-                try {
-                  const data = line.slice(6);
-                  const event = JSON.parse(data);
-                  if (event.type === "response.completed") {
-                    usage = event.response?.usage ?? {};
-                  }
-                } catch {}
+          await forwardSSEStream(resp.body!, (chunk) => s.write(chunk), (data) => {
+            try {
+              const event = JSON.parse(data);
+              if (event.type === "response.completed") {
+                usage = event.response?.usage ?? {};
               }
-              await s.write(line + "\n\n");
-            }
-          }
+            } catch {}
+          });
         } finally {
           const cachedTokens = usage.input_tokens_details?.cached_tokens ?? 0;
           const reasoningTokens = usage.output_tokens_details?.reasoning_tokens ?? 0;
