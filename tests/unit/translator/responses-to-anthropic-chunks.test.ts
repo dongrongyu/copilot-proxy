@@ -227,14 +227,15 @@ describe("responsesEventToChatChunks", () => {
       created,
       completed({
         input_tokens: 100,
-        input_tokens_details: { cached_tokens: 80 },
+        input_tokens_details: { cached_tokens: 60, cache_write_tokens: 30 },
         output_tokens: 50,
         output_tokens_details: { reasoning_tokens: 20 },
       }),
     ]);
 
-    expect(anthropic.totalInputTokens).toBe(20);
-    expect(anthropic.cacheReadInputTokens).toBe(80);
+    expect(anthropic.totalInputTokens).toBe(10);
+    expect(anthropic.cacheCreationInputTokens).toBe(30);
+    expect(anthropic.cacheReadInputTokens).toBe(60);
     expect(anthropic.totalOutputTokens).toBe(30);
     expect(anthropic.reasoningTokens).toBe(20);
   });
@@ -308,7 +309,7 @@ describe("responsesToChatResponse", () => {
       ],
       usage: {
         input_tokens: 10,
-        input_tokens_details: { cached_tokens: 4 },
+        input_tokens_details: { cached_tokens: 4, cache_write_tokens: 3 },
         output_tokens: 7,
         output_tokens_details: { reasoning_tokens: 2 },
       },
@@ -321,6 +322,7 @@ describe("responsesToChatResponse", () => {
     expect(chat.choices[0].finish_reason).toBe("tool_calls");
     expect(chat.usage.prompt_tokens).toBe(10);
     expect(chat.usage.prompt_tokens_details.cached_tokens).toBe(4);
+    expect(chat.usage.prompt_tokens_details.cache_write_tokens).toBe(3);
   });
 
   test("reasoning-only output yields null content and stop", () => {

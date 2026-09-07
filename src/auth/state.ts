@@ -4,6 +4,7 @@ export interface CopilotModel {
   id: string;
   name?: string;
   vendor?: string;
+  model_picker_category?: string;
   preview?: boolean;
   capabilities?: {
     limits?: {

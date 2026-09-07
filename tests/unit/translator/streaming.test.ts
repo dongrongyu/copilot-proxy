@@ -108,14 +108,19 @@ describe("Streaming Translation", () => {
     test("usage chunk updates state", () => {
       const state = new AnthropicStreamState();
       translateChunkToAnthropicEvents({
-        usage: { prompt_tokens: 100, completion_tokens: 50, prompt_tokens_details: { cached_tokens: 80 } },
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 50,
+          prompt_tokens_details: { cached_tokens: 70, cache_write_tokens: 10 },
+        },
         choices: [],
       }, state);
 
-      // totalInputTokens is fresh-input-only: prompt_tokens - cached_tokens.
+      // totalInputTokens is fresh-input-only: prompt_tokens - both cache splits.
       expect(state.totalInputTokens).toBe(20);
       expect(state.totalOutputTokens).toBe(50);
-      expect(state.cacheReadInputTokens).toBe(80);
+      expect(state.cacheCreationInputTokens).toBe(10);
+      expect(state.cacheReadInputTokens).toBe(70);
     });
   });
 

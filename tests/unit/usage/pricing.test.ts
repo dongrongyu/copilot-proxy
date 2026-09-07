@@ -41,7 +41,7 @@ describe("pricing", () => {
       expect(lookupPrice("claude-sonnet-5-xhigh")?.input).toBe(2);
     });
 
-    test("new models from the 2026-07 pricing page", () => {
+    test("current models from the official pricing page", () => {
       expect(lookupPrice("claude-opus-5")).toEqual({
         input: 5, cached_read: 0.5, cache_write: 6.25, output: 25,
       });
@@ -50,9 +50,23 @@ describe("pricing", () => {
         input: 2, cached_read: 0.2, cache_write: 2.5, output: 10,
       });
       expect(lookupPrice("gemini-3.6-flash")?.output).toBe(7.5);
-      expect(lookupPrice("gpt-5.6-luna")?.input).toBe(1);
-      expect(lookupPrice("gpt-5.6-sol")?.input).toBe(5);
-      expect(lookupPrice("gpt-5.6-terra")?.input).toBe(2.5);
+      expect(lookupPrice("gpt-5.6-luna")?.input).toBe(0.2);
+      expect(lookupPrice("gpt-5.6-sol")?.input).toBe(4);
+      expect(lookupPrice("gpt-5.6-terra")?.input).toBe(2);
+      expect(lookupPrice("gpt-6-astra")).toEqual({
+        input: 10,
+        cached_read: 1,
+        cache_write: 12.5,
+        output: 50,
+        long_context: {
+          threshold: 272_000,
+          input: 20,
+          cached_read: 2,
+          cache_write: 25,
+          output: 75,
+        },
+      });
+      expect(lookupPrice("gpt-6-astra-preview")?.output).toBe(50);
     });
 
     test("catalog ids that previously priced as null now resolve", () => {
@@ -170,7 +184,7 @@ describe("pricing", () => {
         input_tokens: 150_000,
         cache_read_input_tokens: 100_000,
       });
-      expect(r.cost).toBeCloseTo((150_000 / 1e6) * 2 + (100_000 / 1e6) * 0.2, 6);
+      expect(r.cost).toBeCloseTo((150_000 / 1e6) * 0.4 + (100_000 / 1e6) * 0.04, 6);
     });
 
     test("gemini-3.1-pro tiers at 200K, and its -preview id inherits the tier", () => {
@@ -186,7 +200,20 @@ describe("pricing", () => {
         input_tokens: 400_000,
         reasoning_tokens: 1_000_000,
       });
-      expect(r.cost).toBeCloseTo((400_000 / 1e6) * 5 + 22.5, 6);
+      expect(r.cost).toBeCloseTo((400_000 / 1e6) * 4 + 18, 6);
+    });
+
+    test("GPT-6 Astra cache writes switch with the long-context tier", () => {
+      const atThreshold = estimateCost("gpt-6-astra", {
+        ...zero,
+        cache_creation_input_tokens: 272_000,
+      });
+      const overThreshold = estimateCost("gpt-6-astra", {
+        ...zero,
+        cache_creation_input_tokens: 272_001,
+      });
+      expect(atThreshold.cost).toBeCloseTo((272_000 / 1e6) * 12.5, 6);
+      expect(overThreshold.cost).toBeCloseTo((272_001 / 1e6) * 25, 6);
     });
 
     test("untiered models ignore input size entirely", () => {

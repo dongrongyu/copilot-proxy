@@ -109,6 +109,69 @@ describe("Codex model catalog overrides", () => {
     expect(source.models[0]?.auto_compact_token_limit).toBeNull();
   });
 
+  test("synthesizes metadata for a selected Copilot GPT missing from Codex", () => {
+    const source = {
+      models: [{
+        slug: "gpt-5.6-sol",
+        display_name: "GPT-5.6-Sol",
+        description: "Latest frontier agentic coding model.",
+        default_reasoning_level: "low",
+        supported_reasoning_levels: [
+          { effort: "low", description: "Low" },
+          { effort: "medium", description: "Medium" },
+          { effort: "max", description: "Max" },
+          { effort: "ultra", description: "Ultra" },
+        ],
+        additional_speed_tiers: ["fast"],
+        service_tiers: [{ id: "priority", name: "Fast" }],
+        base_instructions: "You are Codex, an agent based on GPT-5. Work carefully.",
+        model_messages: {
+          instructions_template: "You are Codex, an agent based on GPT-5. Work carefully.",
+        },
+        context_window: 272_000,
+        max_context_window: 872_000,
+        auto_compact_token_limit: null,
+      }],
+    };
+    const copilot = [{
+      id: "gpt-6-astra",
+      name: "GPT-6 Astra",
+      capabilities: {
+        limits: {
+          max_context_window_tokens: 1_000_000,
+          max_prompt_tokens: 872_000,
+        },
+        supports: {
+          reasoning_effort: ["low", "medium", "high", "xhigh", "max"],
+        },
+      },
+    }] as any;
+
+    const result = patchCodexCatalogForCopilot(source, copilot, "gpt-6-astra");
+    const astra = result.catalog.models.find((model) => model.slug === "gpt-6-astra")!;
+
+    expect(astra.display_name).toBe("GPT-6 Astra");
+    expect(astra.description).toBe("GPT-6 Astra through GitHub Copilot.");
+    expect(astra.supported_reasoning_levels.map((item: any) => item.effort)).toEqual([
+      "low", "medium", "high", "xhigh", "max",
+    ]);
+    expect(astra.additional_speed_tiers).toEqual([]);
+    expect(astra.service_tiers).toEqual([]);
+    expect(astra.context_window).toBe(1_000_000);
+    expect(astra.max_context_window).toBe(1_000_000);
+    expect(astra.auto_compact_token_limit).toBe(850_000);
+    expect(astra.base_instructions).toStartWith(
+      "You are Codex, an agent based on GPT-6 Astra.",
+    );
+    expect(astra.model_messages.instructions_template).toStartWith(
+      "You are Codex, an agent based on GPT-6 Astra.",
+    );
+    expect(result.overrides.map((item) => item.id)).toContain("gpt-6-astra");
+
+    expect(source.models).toHaveLength(1);
+    expect(source.models[0]?.slug).toBe("gpt-5.6-sol");
+  });
+
   test("fills a missing compact limit even when context already matches", () => {
     const source = {
       models: [{
@@ -205,6 +268,22 @@ describe("Codex model catalog overrides", () => {
         ? JSON.stringify({ models: [{ slug: "gpt-5.5" }] })
         : JSON.stringify({ models: [{ slug: "gpt-5.6-sol" }] }),
       "gpt-5.6-sol",
+    );
+    expect(catalog.models[0]?.slug).toBe("gpt-5.6-sol");
+  });
+
+  test("returns a valid fallback catalog when synthesis is allowed", () => {
+    const commands = [
+      { label: "Codex", command: "codex", args: [] },
+      { label: "Windows Codex", command: "cmd.exe", args: [] },
+    ];
+    const catalog = loadBundledCodexCatalogFromCommands(
+      commands,
+      (spec) => spec.label === "Codex"
+        ? JSON.stringify({ models: [{ slug: "gpt-5.6-sol" }] })
+        : JSON.stringify({ models: [{ slug: "gpt-5.5" }] }),
+      "gpt-6-astra",
+      true,
     );
     expect(catalog.models[0]?.slug).toBe("gpt-5.6-sol");
   });

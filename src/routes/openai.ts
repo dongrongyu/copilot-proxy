@@ -10,6 +10,7 @@ import { fetchUpstream } from "../proxy/request";
 import { adjustResponsesReasoningForModel } from "../proxy/reasoning-effort";
 import { forwardSSEStream } from "../proxy/sse";
 import { logRequest, type RequestLogEntry } from "../usage/logger";
+import { extractOpenAIUsage, extractResponsesUsage } from "../usage/openai-usage";
 import {
   translateResponsesToChat,
   translateChatToResponses,
@@ -36,29 +37,6 @@ function makeLogEntry(
     reasoning_tokens: 0,
     effort,
     duration_ms: 0, status_code: 200, error: null,
-  };
-}
-
-/**
- * Extract the 5-category token split from an OpenAI-style usage object.
- * Works for /chat/completions usage and /v1/responses usage (after key
- * normalisation by the caller).
- */
-function extractOpenAIUsage(usage: any): {
-  input_tokens: number;
-  cache_read_input_tokens: number;
-  output_tokens: number;
-  reasoning_tokens: number;
-} {
-  const promptTokens = usage?.prompt_tokens ?? 0;
-  const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
-  const completionTokens = usage?.completion_tokens ?? 0;
-  const reasoningTokens = usage?.completion_tokens_details?.reasoning_tokens ?? 0;
-  return {
-    input_tokens: Math.max(0, promptTokens - cachedTokens),
-    cache_read_input_tokens: cachedTokens,
-    output_tokens: Math.max(0, completionTokens - reasoningTokens),
-    reasoning_tokens: reasoningTokens,
   };
 }
 
@@ -227,16 +205,9 @@ openaiRouter.post("/v1/responses", async (c) => {
             } catch {}
           });
         } finally {
-          const cachedTokens = usage.input_tokens_details?.cached_tokens ?? 0;
-          const reasoningTokens = usage.output_tokens_details?.reasoning_tokens ?? 0;
-          const rawInput = usage.input_tokens ?? usage.prompt_tokens ?? 0;
-          const rawOutput = usage.output_tokens ?? usage.completion_tokens ?? 0;
           logRequest({
             ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/responses", startTime, effort),
-            input_tokens: Math.max(0, rawInput - cachedTokens),
-            cache_read_input_tokens: cachedTokens,
-            output_tokens: Math.max(0, rawOutput - reasoningTokens),
-            reasoning_tokens: reasoningTokens,
+            ...extractResponsesUsage(usage),
             duration_ms: Date.now() - startTime,
           } as RequestLogEntry);
         }
@@ -248,22 +219,13 @@ openaiRouter.post("/v1/responses", async (c) => {
     if (resp.ok) {
       try { usage = JSON.parse(body).usage ?? {}; } catch {}
     }
-    {
-      const cachedTokens = usage.input_tokens_details?.cached_tokens ?? 0;
-      const reasoningTokens = usage.output_tokens_details?.reasoning_tokens ?? 0;
-      const rawInput = usage.input_tokens ?? 0;
-      const rawOutput = usage.output_tokens ?? 0;
-      logRequest({
-        ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/responses", startTime, effort),
-        input_tokens: Math.max(0, rawInput - cachedTokens),
-        cache_read_input_tokens: cachedTokens,
-        output_tokens: Math.max(0, rawOutput - reasoningTokens),
-        reasoning_tokens: reasoningTokens,
-        duration_ms: Date.now() - startTime,
-        status_code: resp.status,
-        error: resp.ok ? null : body.slice(0, 500),
-      } as RequestLogEntry);
-    }
+    logRequest({
+      ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/responses", startTime, effort),
+      ...extractResponsesUsage(usage),
+      duration_ms: Date.now() - startTime,
+      status_code: resp.status,
+      error: resp.ok ? null : body.slice(0, 500),
+    } as RequestLogEntry);
 
     return new Response(body, { status: resp.status, headers: { "Content-Type": "application/json" } });
   } catch (err) {

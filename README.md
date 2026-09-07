@@ -10,7 +10,7 @@ Runs on Node.js ≥ 20 (or [Bun](https://bun.sh/) in development).
 - **Anthropic-compatible**: `POST /v1/messages`, `/v1/messages/count_tokens` (streaming + non-streaming)
 - **Gemini-compatible**: `POST /v1beta/models/{model}:generateContent` / `:streamGenerateContent` / `:countTokens`, plus `GET /v1beta/models` for CLI preflight
 - **Format translation**: Anthropic ↔ OpenAI, Gemini ↔ OpenAI, and Responses ↔ Chat Completions for models that don't support `/v1/responses` natively (e.g. Claude via Copilot)
-- **Run Claude Code on a GPT model** — `config claude` lists Claude *and* GPT models; pick `gpt-5.6-sol` and Claude Code drives it end to end, tool calls included. The proxy translates the full Anthropic tool-use protocol to and from whichever upstream API the model actually serves (`/responses` for the GPT-5.5/5.6 line, `/chat/completions` otherwise)
+- **Run Claude Code on a GPT model** — `config claude` lists Claude *and* GPT models; pick `gpt-6-astra` and Claude Code drives it end to end, tool calls included. The proxy translates the full Anthropic tool-use protocol to and from whichever upstream API the model actually serves (`/responses` for current GPT models, `/chat/completions` otherwise)
 - **Web search fallback** via Tavily or WebIQ — Anthropic's `web_search` is a server-side tool no Copilot model implements, so the proxy runs the query itself and injects synthetic `server_tool_use` / `web_search_tool_result` blocks. Works on Claude *and* GPT models (Anthropic `/v1/messages` only — i.e. Claude Code)
 - **Reasoning effort control** — set one target effort (`low`…`max`) for all thinking requests; the proxy clamps it to the nearest level each model supports. Tunable live via CLI or the web portal, no restart
 - **Web config portal** — a browser UI at `http://127.0.0.1:8989/` for usage/cost, request logs, reasoning effort, web search, model mappings, client setup, and a whole-file `config.yaml` editor; edits hot-reload without a restart
@@ -77,9 +77,9 @@ copilot-proxy config codex     # writes ~/.codex/config.toml
 copilot-proxy config gemini    # writes ~/.gemini/.env + ~/.gemini/settings.json
 ```
 
-Each picks that client's strongest model by default (Claude → Opus 5, Codex → GPT-5.5, Gemini → Gemini 3.1 Pro); you can choose another interactively or on the portal's **Client Setup** page. Existing settings are **merged**, not overwritten.
+Each picks that client's strongest model by default (Claude → Opus 5, Codex → GPT-6 Astra, Gemini → Gemini 3.1 Pro); you can choose another interactively or on the portal's **Client Setup** page. Existing settings are **merged**, not overwritten.
 
-`config claude` offers **GPT models alongside Claude ones** — select e.g. `gpt-5.6-sol[1m]` and Claude Code runs on it, with tool calls, multi-turn sessions, and web search all working. The one thing you lose is the thinking display: Copilot does not emit reasoning content for GPT models, so the model still reasons (and reasoning tokens are still billed and logged) but Claude Code has nothing to render.
+`config claude` offers **GPT models alongside Claude ones** — select e.g. `gpt-6-astra[1m]` and Claude Code runs on it, with tool calls, multi-turn sessions, and web search all working. The one thing you lose is the thinking display: Copilot does not emit reasoning content for GPT models, so the model still reasons (and reasoning tokens are still billed and logged) but Claude Code has nothing to render.
 
 ### Service management
 
@@ -145,7 +145,7 @@ Default is `xhigh`. Setting it via the CLI **applies instantly to the running pr
 
 > **Scope**: effort is injected for models that advertise a `reasoning_effort` capability on:
 > - the Anthropic `/v1/messages` path for thinking requests (Claude Code), and
-> - the OpenAI `/v1/responses` path when the request already carries a `reasoning` object **and the selected Copilot model supports the Responses API** (for example Codex / GPT-5.x).
+> - the OpenAI `/v1/responses` path when the request already carries a `reasoning` object **and the selected Copilot model supports the Responses API** (for example Codex / GPT-6 Astra).
 >
 > Models without that capability (e.g. Claude 4.5 / Haiku), requests with no thinking/reasoning section, Gemini endpoints, and `/v1/responses` requests that must fall back to `/chat/completions` are left unchanged. On the direct `/v1/responses` path, a caller-provided `reasoning.effort` is preserved (and clamped if needed); otherwise the proxy's configured effort is used as the default. The effort actually sent is recorded in the request logs (`copilot-proxy logs`).
 

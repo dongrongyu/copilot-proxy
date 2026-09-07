@@ -66,7 +66,7 @@ async function printStatus(): Promise<void> {
   console.log(`\n  Applied to reasoning-capable models on:`);
   console.log(`  - Anthropic /v1/messages thinking requests (Claude Code)`);
   console.log(`  - OpenAI /v1/responses requests that already include a reasoning object`);
-  console.log(`    and stay on the direct Responses path (for example GPT-5.x)`);
+  console.log(`    and stay on the direct Responses path (for example GPT-6 Astra)`);
   console.log(`  The target is clamped to the nearest effort each model supports.`);
   console.log(`\n  config: ${getConfigPath()}`);
 }

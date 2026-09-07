@@ -524,7 +524,7 @@ function modelsForTarget(target: SetupTarget): { id: string; display: string }[]
   let familyIds = ids.filter((id) => id.toLowerCase().startsWith(prefix));
 
   // Surface the strongest model first (defaults to choices[0] in the UI).
-  const best = pickBestModel(family, familyIds);
+  const best = pickBestModel(family, familyIds, catalog);
   if (best) familyIds = [best, ...familyIds.filter((id) => id !== best)];
 
   return familyIds.map((id) => ({ id, display: id }));

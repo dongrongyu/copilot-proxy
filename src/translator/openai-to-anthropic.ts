@@ -1,6 +1,7 @@
 /**
  * Translate OpenAI chat completion response to Anthropic message format.
  */
+import { extractOpenAIUsage } from "../usage/openai-usage";
 
 export function translateOpenaiToAnthropic(openaiResp: any): any {
   const choice = openaiResp.choices?.[0];
@@ -51,7 +52,7 @@ export function translateOpenaiToAnthropic(openaiResp: any): any {
   }
 
   const usage = openaiResp.usage ?? {};
-  const cachedTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
+  const normalizedUsage = extractOpenAIUsage(usage);
 
   return {
     id: openaiResp.id ?? crypto.randomUUID(),
@@ -62,9 +63,14 @@ export function translateOpenaiToAnthropic(openaiResp: any): any {
     stop_reason: stopReason,
     stop_sequence: null,
     usage: {
-      input_tokens: (usage.prompt_tokens ?? 0) - cachedTokens,
+      input_tokens: normalizedUsage.input_tokens,
       output_tokens: usage.completion_tokens ?? 0,
-      ...(cachedTokens > 0 ? { cache_read_input_tokens: cachedTokens } : {}),
+      ...(normalizedUsage.cache_creation_input_tokens > 0
+        ? { cache_creation_input_tokens: normalizedUsage.cache_creation_input_tokens }
+        : {}),
+      ...(normalizedUsage.cache_read_input_tokens > 0
+        ? { cache_read_input_tokens: normalizedUsage.cache_read_input_tokens }
+        : {}),
     },
   };
 }

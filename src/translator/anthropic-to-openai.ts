@@ -39,8 +39,8 @@ export function translateAnthropicToOpenai(payload: any): any {
     stream: payload.stream ?? false,
   };
 
-  // GPT-5.x rejects `max_tokens` on /chat/completions with a bare 400 and
-  // requires `max_completion_tokens`. Gemini accepts either, so this is
+  // Current GPT reasoning models reject `max_tokens` on /chat/completions with
+  // a bare 400 and require `max_completion_tokens`. Gemini accepts either, so this is
   // unconditional rather than per-model.
   if (payload.max_tokens != null) result.max_completion_tokens = payload.max_tokens;
   if (payload.temperature != null) result.temperature = payload.temperature;

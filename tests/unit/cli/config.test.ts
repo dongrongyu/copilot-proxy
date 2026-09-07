@@ -50,14 +50,19 @@ describe("Config Utilities", () => {
 
   describe("pickBestModel", () => {
     const claude = ["claude-haiku-4.5", "claude-opus-4.5", "claude-opus-4.6", "claude-opus-4.7", "claude-opus-4.8", "claude-sonnet-4.5", "claude-sonnet-4.6"];
-    const gpt = ["gpt-3.5-turbo", "gpt-4", "gpt-4.1", "gpt-4o", "gpt-4o-mini", "gpt-5-mini", "gpt-5.3-codex", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5"];
+    const gpt = ["gpt-3.5-turbo", "gpt-4", "gpt-4.1", "gpt-4o", "gpt-4o-mini", "gpt-5-mini", "gpt-5.3-codex", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-6-astra"];
     const gemini = ["gemini-2.5-pro", "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-3.5-flash"];
 
     test("claude: newest Opus", () => {
       expect(pickBestModel("claude", claude)).toBe("claude-opus-4.8");
     });
-    test("gpt: newest full GPT-5, excluding mini/codex", () => {
-      expect(pickBestModel("gpt", gpt)).toBe("gpt-5.5");
+    test("gpt: newest flagship model, excluding lightweight/codex variants", () => {
+      expect(pickBestModel("gpt", gpt)).toBe("gpt-6-astra");
+    });
+    test("gpt: uses live picker categories for future named flagships", () => {
+      const ids = ["gpt-6-astra", "gpt-7-nova"];
+      const catalog = ids.map((id) => ({ id, model_picker_category: "powerful" }));
+      expect(pickBestModel("gpt", ids, catalog)).toBe("gpt-7-nova");
     });
     test("gemini: newest Pro", () => {
       expect(pickBestModel("gemini", gemini)).toBe("gemini-3.1-pro-preview");
@@ -319,6 +324,7 @@ key = "value"
       { id: "gemini-3.1-pro-preview", vendor: "Google", capabilities: { limits: { max_context_window_tokens: 1000000 } } },
       { id: "gpt-5.5", vendor: "OpenAI", capabilities: { limits: { max_context_window_tokens: 1050000 } } },
       { id: "gpt-5.6-sol", vendor: "OpenAI", capabilities: { limits: { max_context_window_tokens: 1050000 } } },
+      { id: "gpt-6-astra", vendor: "OpenAI", capabilities: { limits: { max_context_window_tokens: 1000000 } } },
     ];
 
     test("appends [1m] for Anthropic 1M models without -1m suffix", () => {
@@ -340,6 +346,7 @@ key = "value"
       // proxy strips it before the upstream request, so it is vendor-agnostic.
       expect(claudeDisplayName("gpt-5.5", catalog)).toBe("gpt-5.5[1m]");
       expect(claudeDisplayName("gpt-5.6-sol", catalog)).toBe("gpt-5.6-sol[1m]");
+      expect(claudeDisplayName("gpt-6-astra", catalog)).toBe("gpt-6-astra[1m]");
       expect(claudeDisplayName("gemini-3.1-pro-preview", catalog)).toBe("gemini-3.1-pro-preview[1m]");
     });
 
@@ -359,6 +366,7 @@ key = "value"
     const catalog = [
       { id: "claude-opus-4.8", supported_endpoints: ["/v1/messages", "/chat/completions"] },
       { id: "gpt-5.6-sol", supported_endpoints: ["/responses"] },
+      { id: "gpt-6-astra", supported_endpoints: ["/responses"] },
       { id: "gpt-5.4", supported_endpoints: ["/chat/completions", "/responses"] },
       { id: "gpt-4o", supported_endpoints: [] },
       { id: "gemini-3.1-pro-preview", supported_endpoints: ["/chat/completions"] },
@@ -370,6 +378,7 @@ key = "value"
     });
     test("accepts GPT ids exposing only /responses", () => {
       expect(isClaudeCodeUsableModel("gpt-5.6-sol", catalog)).toBe(true);
+      expect(isClaudeCodeUsableModel("gpt-6-astra", catalog)).toBe(true);
       expect(isClaudeCodeUsableModel("gpt-5.4", catalog)).toBe(true);
     });
     test("rejects ids with an empty supported_endpoints (dead legacy GPT)", () => {
@@ -392,6 +401,7 @@ key = "value"
       { id: "claude-sonnet-4.6", supported_endpoints: ["/v1/messages", "/chat/completions"] },
       { id: "claude-haiku-4.5", supported_endpoints: ["/v1/messages"] },
       { id: "gpt-5.6-sol", supported_endpoints: ["/responses"] },
+      { id: "gpt-6-astra", supported_endpoints: ["/responses"] },
       { id: "gpt-5.4", supported_endpoints: ["/chat/completions", "/responses"] },
       { id: "gpt-4o", supported_endpoints: [] },
       { id: "gemini-3.1-pro-preview", supported_endpoints: ["/chat/completions"] },
@@ -403,6 +413,7 @@ key = "value"
       const list = claudeCodeModelList(ids, catalog);
       expect(list).toContain("claude-opus-4.8");
       expect(list).toContain("gpt-5.6-sol");
+      expect(list).toContain("gpt-6-astra");
       expect(list).toContain("gpt-5.4");
     });
     test("excludes Gemini and grok ids", () => {

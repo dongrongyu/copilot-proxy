@@ -1,6 +1,7 @@
 /**
  * SSE stream translator: OpenAI streaming chunks -> Anthropic SSE events.
  */
+import { extractOpenAIUsage } from "../usage/openai-usage";
 
 export class AnthropicStreamState {
   messageStartSent = false;
@@ -32,18 +33,12 @@ export function translateChunkToAnthropicEvents(
 
   // Track usage from final chunk
   if (chunk.usage) {
-    const promptTokens = chunk.usage.prompt_tokens ?? 0;
-    const cachedTokens = chunk.usage.prompt_tokens_details?.cached_tokens ?? 0;
-    const completionTokens = chunk.usage.completion_tokens ?? 0;
-    const reasoningTokens = chunk.usage.completion_tokens_details?.reasoning_tokens ?? 0;
-    // input_tokens excludes cached portion; cache_read_input_tokens carries the cached split.
-    state.totalInputTokens = Math.max(0, promptTokens - cachedTokens);
-    state.cacheReadInputTokens = cachedTokens;
-    // OpenAI has no cache-creation concept.
-    state.cacheCreationInputTokens = 0;
-    state.reasoningTokens = reasoningTokens;
-    // output_tokens excludes the reasoning split, mirroring the 5-category schema.
-    state.totalOutputTokens = Math.max(0, completionTokens - reasoningTokens);
+    const usage = extractOpenAIUsage(chunk.usage);
+    state.totalInputTokens = usage.input_tokens;
+    state.cacheReadInputTokens = usage.cache_read_input_tokens;
+    state.cacheCreationInputTokens = usage.cache_creation_input_tokens;
+    state.reasoningTokens = usage.reasoning_tokens;
+    state.totalOutputTokens = usage.output_tokens;
   }
 
   if (chunk.model) {
@@ -68,6 +63,9 @@ export function translateChunkToAnthropicEvents(
         usage: {
           input_tokens: state.totalInputTokens,
           output_tokens: 0,
+          ...(state.cacheCreationInputTokens > 0
+            ? { cache_creation_input_tokens: state.cacheCreationInputTokens }
+            : {}),
           ...(state.cacheReadInputTokens > 0 ? { cache_read_input_tokens: state.cacheReadInputTokens } : {}),
         },
       },
@@ -159,6 +157,9 @@ export function translateChunkToAnthropicEvents(
       usage: {
         input_tokens: state.totalInputTokens,
         output_tokens: state.totalOutputTokens,
+        ...(state.cacheCreationInputTokens > 0
+          ? { cache_creation_input_tokens: state.cacheCreationInputTokens }
+          : {}),
         ...(state.cacheReadInputTokens > 0 ? { cache_read_input_tokens: state.cacheReadInputTokens } : {}),
       },
     });

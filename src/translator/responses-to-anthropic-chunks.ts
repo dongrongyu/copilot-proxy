@@ -106,15 +106,18 @@ function toolArgsChunk(item: ResponseItem, args: string): any {
  * Re-key a Responses `usage` object into the Chat Completions shape the
  * Anthropic translator reads.
  *
- * Copilot also reports `input_tokens_details.cache_write_tokens`, but the
- * downstream translator hardcodes cache-creation to 0 and no model reachable on
- * this path bills a separate cache-write rate, so it is not carried over.
+ * `cache_write_tokens` is a Copilot extension carried through the internal chat
+ * shape so usage logging can price cache creation for models such as GPT-6
+ * Astra without conflating it with fresh input.
  */
 function usageToChat(usage: any): any {
   const u = usage ?? {};
   return {
     prompt_tokens: u.input_tokens ?? 0,
-    prompt_tokens_details: { cached_tokens: u.input_tokens_details?.cached_tokens ?? 0 },
+    prompt_tokens_details: {
+      cached_tokens: u.input_tokens_details?.cached_tokens ?? 0,
+      cache_write_tokens: u.input_tokens_details?.cache_write_tokens ?? 0,
+    },
     completion_tokens: u.output_tokens ?? 0,
     completion_tokens_details: {
       reasoning_tokens: u.output_tokens_details?.reasoning_tokens ?? 0,

@@ -4,7 +4,7 @@ import { DEFAULT_CONFIG } from "../../../src/config/schema";
 import { setupPreview } from "../../../src/portal/api";
 
 // A representative slice of the Copilot /models catalog: Claude ids (which
-// expose /v1/messages), live GPT-5 ids (gpt-5.6-sol is /responses-only), a dead
+// expose /v1/messages), live GPT ids (including responses-only GPT-6 Astra), a dead
 // legacy GPT id (empty supported_endpoints), plus a Gemini and a grok id that
 // Claude Code cannot target. setupPreview("claude", …) reads getState().models,
 // so we populate it directly — no network, no disk.
@@ -13,6 +13,7 @@ const CATALOG = [
   { id: "claude-sonnet-4.6", vendor: "Anthropic", supported_endpoints: ["/v1/messages", "/chat/completions"], capabilities: { limits: { max_context_window_tokens: 200000 } } },
   { id: "claude-haiku-4.5", vendor: "Anthropic", supported_endpoints: ["/v1/messages"], capabilities: { limits: { max_context_window_tokens: 200000 } } },
   { id: "gpt-5.6-sol", vendor: "OpenAI", supported_endpoints: ["/responses"], capabilities: { limits: { max_context_window_tokens: 1050000 } } },
+  { id: "gpt-6-astra", name: "GPT-6 Astra", vendor: "OpenAI", model_picker_category: "powerful", supported_endpoints: ["/responses"], capabilities: { limits: { max_context_window_tokens: 1000000 } } },
   { id: "gpt-5.4", vendor: "OpenAI", supported_endpoints: ["/chat/completions", "/responses"], capabilities: { limits: { max_context_window_tokens: 128000 } } },
   { id: "gpt-4o", vendor: "OpenAI", supported_endpoints: [], capabilities: { limits: { max_context_window_tokens: 128000 } } },
   { id: "gemini-3.1-pro-preview", vendor: "Google", supported_endpoints: ["/chat/completions"], capabilities: { limits: { max_context_window_tokens: 1000000 } } },
@@ -29,6 +30,7 @@ describe("portal Client Setup — claude target model list", () => {
     const ids = setupPreview("claude", {}).models.map((m) => m.id);
     expect(ids).toContain("claude-opus-4.8");
     expect(ids).toContain("gpt-5.6-sol");
+    expect(ids).toContain("gpt-6-astra");
     expect(ids).toContain("gpt-5.4");
   });
 
@@ -46,7 +48,7 @@ describe("portal Client Setup — claude target model list", () => {
   });
 
   test("tags a 1M-context GPT model with [1m] in its display name", () => {
-    const sol = setupPreview("claude", {}).models.find((m) => m.id === "gpt-5.6-sol");
-    expect(sol!.display).toBe("gpt-5.6-sol[1m]");
+    const astra = setupPreview("claude", {}).models.find((m) => m.id === "gpt-6-astra");
+    expect(astra!.display).toBe("gpt-6-astra[1m]");
   });
 });

@@ -97,7 +97,7 @@ max_connection_retries: 3
 # Reasoning Effort
 # Target reasoning effort applied to supported requests whose model advertises a
 # reasoning_effort capability (e.g. claude-opus-4.6/4.7/4.8, claude-sonnet-4.6,
-# gpt-5.x). The proxy clamps this value to the nearest effort the model
+# current GPT models). The proxy clamps this value to the nearest effort the model
 # actually supports (e.g. "xhigh" becomes "max" on a model that lacks xhigh).
 # Options: "low", "medium", "high", "xhigh", "max"
 #   copilot-proxy effort high

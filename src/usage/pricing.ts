@@ -4,16 +4,15 @@
  * models-and-pricing page — they are *what Copilot actually charges* on the
  * usage-based plan (1 AI Credit = $0.01 USD), not just vendor list price.
  *
- * Source (verified 2026-07-27):
+ * Source (verified 2026-09-07):
  *   https://docs.github.com/copilot/reference/copilot-billing/models-and-pricing
  *
  * Fields:
  *   - input:        $/MTok for fresh (uncached) input tokens
  *   - cached_read:  $/MTok for cached input ("Cached input" column)
  *   - cache_write:  $/MTok for cache-creation tokens. Copilot publishes a
- *                   separate "Cache write" column ONLY for Anthropic models;
- *                   for all other vendors this is 0 (the cost is folded into
- *                   the input rate by the provider).
+ *                   separate "Cache write" rate for Anthropic and its newest
+ *                   OpenAI models; models listed as not applicable use 0.
  *   - output:       $/MTok for output tokens. Copilot does not bill thinking
  *                   tokens separately, so for OpenAI/Gemini we still charge
  *                   reasoning_tokens at this rate to stay conservative.
@@ -45,8 +44,7 @@ export interface ModelPrice extends TierRates {
 }
 
 const PRICES: Record<string, ModelPrice> = {
-  // ---- Anthropic (only family Copilot bills a separate Cache write for;
-  //      no Tier/Threshold columns, so never a long_context tier) ----
+  // ---- Anthropic (no Tier/Threshold columns, so never a long_context tier) ----
   "claude-opus-4.5": { input: 5, cached_read: 0.5, cache_write: 6.25, output: 25 },
   "claude-opus-4.6": { input: 5, cached_read: 0.5, cache_write: 6.25, output: 25 },
   "claude-opus-4.7": { input: 5, cached_read: 0.5, cache_write: 6.25, output: 25 },
@@ -88,16 +86,20 @@ const PRICES: Record<string, ModelPrice> = {
     long_context: { threshold: 272_000, input: 10, cached_read: 1, cache_write: 0, output: 45 },
   },
   "gpt-5.6-luna": {
-    input: 1, cached_read: 0.1, cache_write: 0, output: 6,
-    long_context: { threshold: 200_000, input: 2, cached_read: 0.2, cache_write: 0, output: 9 },
+    input: 0.2, cached_read: 0.02, cache_write: 0.25, output: 1.2,
+    long_context: { threshold: 200_000, input: 0.4, cached_read: 0.04, cache_write: 0.5, output: 1.8 },
   },
   "gpt-5.6-sol": {
-    input: 5, cached_read: 0.5, cache_write: 0, output: 30,
-    long_context: { threshold: 272_000, input: 10, cached_read: 1, cache_write: 0, output: 45 },
+    input: 4, cached_read: 0.4, cache_write: 5, output: 20,
+    long_context: { threshold: 272_000, input: 8, cached_read: 0.8, cache_write: 10, output: 30 },
   },
   "gpt-5.6-terra": {
-    input: 2.5, cached_read: 0.25, cache_write: 0, output: 15,
-    long_context: { threshold: 272_000, input: 5, cached_read: 0.5, cache_write: 0, output: 22.5 },
+    input: 2, cached_read: 0.2, cache_write: 2.5, output: 12,
+    long_context: { threshold: 272_000, input: 4, cached_read: 0.4, cache_write: 5, output: 18 },
+  },
+  "gpt-6-astra": {
+    input: 10, cached_read: 1, cache_write: 12.5, output: 50,
+    long_context: { threshold: 272_000, input: 20, cached_read: 2, cache_write: 25, output: 75 },
   },
 
   // ---- Google Gemini ----
@@ -140,6 +142,7 @@ const PREFIX_FALLBACKS: Array<[string, string]> = [
   ["gpt-5.6-luna-", "gpt-5.6-luna"],
   ["gpt-5.6-sol-", "gpt-5.6-sol"],
   ["gpt-5.6-terra-", "gpt-5.6-terra"],
+  ["gpt-6-astra-", "gpt-6-astra"],
   ["gpt-5.3-codex-", "gpt-5.3-codex"],
   ["gpt-5-mini-", "gpt-5-mini"],
   ["gemini-2.5-pro-", "gemini-2.5-pro"],

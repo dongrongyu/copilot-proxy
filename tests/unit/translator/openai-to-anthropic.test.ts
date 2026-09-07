@@ -44,13 +44,19 @@ describe("OpenAI to Anthropic Translation", () => {
     expect(result.stop_reason).toBe("max_tokens");
   });
 
-  test("cached tokens mapped to cache_read_input_tokens", () => {
+  test("cache read and write tokens are split from fresh input", () => {
     const result = translateOpenaiToAnthropic({
       id: "chatcmpl-123", model: "gpt-4o",
       choices: [{ message: { role: "assistant", content: "hi" }, finish_reason: "stop" }],
-      usage: { prompt_tokens: 100, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 80 } },
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 5,
+        prompt_tokens_details: { cached_tokens: 60, cache_write_tokens: 30 },
+      },
     });
-    expect(result.usage.cache_read_input_tokens).toBe(80);
+    expect(result.usage.input_tokens).toBe(10);
+    expect(result.usage.cache_creation_input_tokens).toBe(30);
+    expect(result.usage.cache_read_input_tokens).toBe(60);
   });
 
   test("no cached tokens -> no cache_read_input_tokens field", () => {

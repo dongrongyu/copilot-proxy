@@ -14,8 +14,9 @@ export type Provider = "anthropic" | "openai" | "gemini";
  *   - Anthropic: input_tokens / cache_* fields come straight from usage.* (already disjoint).
  *                reasoning_tokens stays 0 because Anthropic does not report thinking
  *                separately; thinking remains rolled into output_tokens.
- *   - OpenAI:    input_tokens = prompt_tokens - cached_tokens (cached split out).
- *                cache_creation_input_tokens = 0 (no equivalent concept).
+ *   - OpenAI:    input_tokens = prompt_tokens - cached_tokens - cache_write_tokens.
+ *                cache_creation_input_tokens = cache_write_tokens when the
+ *                Responses API reports it, otherwise 0.
  *                cache_read_input_tokens = prompt_tokens_details.cached_tokens.
  *                reasoning_tokens = completion_tokens_details.reasoning_tokens.
  *                output_tokens = completion_tokens - reasoning_tokens.

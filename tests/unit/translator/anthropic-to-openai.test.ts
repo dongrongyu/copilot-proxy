@@ -168,7 +168,7 @@ describe("Anthropic to OpenAI Translation", () => {
       });
       expect(result.temperature).toBe(0.5);
       expect(result.top_p).toBe(0.9);
-      // GPT-5.x rejects the legacy `max_tokens` spelling with a bare 400.
+      // Current GPT reasoning models reject the legacy spelling with a bare 400.
       expect(result.max_completion_tokens).toBe(100);
       expect(result.max_tokens).toBeUndefined();
     });

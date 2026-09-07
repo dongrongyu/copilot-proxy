@@ -41,6 +41,77 @@ function positiveInteger(value: unknown): number | undefined {
     : undefined;
 }
 
+const REASONING_DESCRIPTIONS: Record<string, string> = {
+  low: "Fast responses with lighter reasoning",
+  medium: "Balances speed and reasoning depth for everyday tasks",
+  high: "Greater reasoning depth for complex problems",
+  xhigh: "Extra high reasoning depth for complex problems",
+  max: "Maximum reasoning depth for the hardest problems",
+};
+
+function rewriteCodexModelIdentity(value: unknown, displayName: string): unknown {
+  if (typeof value !== "string") return value;
+  return value.replace(
+    /^You are Codex, an agent based on .*?\.(?=\r?\n|$)/,
+    `You are Codex, an agent based on ${displayName}.`,
+  );
+}
+
+/**
+ * Codex may lag behind the live Copilot catalog for a newly released model.
+ * Clone the newest compatible GPT entry so Codex retains its version-specific
+ * tool/instruction metadata, then replace every capability Copilot advertises.
+ * Once Codex ships an official entry this path is skipped automatically.
+ */
+function synthesizeCodexModel(
+  catalog: CodexModelCatalog,
+  copilot: CopilotModel,
+): Record<string, any> {
+  const template = catalog.models.find((model) => model.slug === "gpt-5.6-sol")
+    ?? catalog.models.find((model) => /^gpt-\d/.test(model.slug));
+  if (!template) {
+    throw new Error(`Unable to synthesize Codex metadata for ${copilot.id}: no GPT template found`);
+  }
+
+  const model = JSON.parse(JSON.stringify(template)) as Record<string, any>;
+  const displayName = copilot.name || copilot.id;
+  const supportedEfforts = copilot.capabilities?.supports?.reasoning_effort ?? [];
+  const templateEfforts = new Map<string, string>(
+    (Array.isArray(model.supported_reasoning_levels)
+      ? model.supported_reasoning_levels
+      : [])
+      .filter((item: any) => typeof item?.effort === "string")
+      .map((item: any) => [item.effort, item.description ?? ""]),
+  );
+
+  model.slug = copilot.id;
+  model.display_name = displayName;
+  model.description = `${displayName} through GitHub Copilot.`;
+  model.visibility = "list";
+  model.supported_in_api = true;
+  model.additional_speed_tiers = [];
+  model.service_tiers = [];
+  model.supported_reasoning_levels = supportedEfforts.map((effort) => ({
+    effort,
+    description: templateEfforts.get(effort)
+      || REASONING_DESCRIPTIONS[effort]
+      || `${effort} reasoning effort`,
+  }));
+  if (supportedEfforts.length > 0) {
+    model.default_reasoning_level = supportedEfforts.includes(model.default_reasoning_level)
+      ? model.default_reasoning_level
+      : (supportedEfforts.includes("medium") ? "medium" : supportedEfforts[0]);
+  }
+  model.base_instructions = rewriteCodexModelIdentity(model.base_instructions, displayName);
+  if (model.model_messages && typeof model.model_messages === "object") {
+    model.model_messages.instructions_template = rewriteCodexModelIdentity(
+      model.model_messages.instructions_template,
+      displayName,
+    );
+  }
+  return model;
+}
+
 /**
  * Keep compaction below Copilot's advertised prompt ceiling. Rounding down to
  * 10K tokens provides a small buffer for tokenizer/accounting differences:
@@ -57,12 +128,14 @@ export function codexAutoCompactLimit(maxPromptTokens: unknown): number | undefi
 
 /**
  * Patch a complete Codex catalog with the context and prompt limits advertised
- * by the live Copilot catalog. Only GPT models present in both catalogs are
- * touched; all other model metadata remains semantically unchanged.
+ * by the live Copilot catalog. Existing GPT entries are updated in place. If a
+ * selected GPT has reached Copilot before Codex's bundled catalog, a compatible
+ * entry is synthesized for it; all other metadata remains unchanged.
  */
 export function patchCodexCatalogForCopilot(
   source: unknown,
   copilotModels: CopilotModel[],
+  requiredModel?: string,
 ): PatchedCodexCatalog {
   if (!source || typeof source !== "object" || !Array.isArray((source as any).models)) {
     throw new Error("Codex model catalog must contain a models array");
@@ -75,6 +148,14 @@ export function patchCodexCatalogForCopilot(
 
   const copilotById = new Map(copilotModels.map((model) => [model.id, model]));
   const overrides: CodexModelLimitOverride[] = [];
+
+  if (requiredModel && !catalog.models.some((model) => model.slug === requiredModel)) {
+    const copilot = copilotById.get(requiredModel);
+    if (!copilot || !requiredModel.startsWith("gpt-")) {
+      throw new Error(`Codex model catalog does not include ${requiredModel}`);
+    }
+    catalog.models.push(synthesizeCodexModel(catalog, copilot));
+  }
 
   for (const model of catalog.models) {
     const id = typeof model.slug === "string" ? model.slug : "";
@@ -185,8 +266,10 @@ export function loadBundledCodexCatalogFromCommands(
   commands: CodexCatalogCommand[],
   run: CodexCatalogCommandRunner = runCatalogCommand,
   requiredModel?: string,
+  allowMissingRequiredModel = false,
 ): CodexModelCatalog {
   const failures: string[] = [];
+  let missingRequiredFallback: CodexModelCatalog | null = null;
   for (const spec of commands) {
     let output: string;
     try {
@@ -213,10 +296,15 @@ export function loadBundledCodexCatalogFromCommands(
       requiredModel
       && !catalog.models.some((model) => model.slug === requiredModel)
     ) {
+      missingRequiredFallback ??= catalog;
       failures.push(`${spec.label}: catalog does not include ${requiredModel}`);
       continue;
     }
     return catalog;
+  }
+
+  if (allowMissingRequiredModel && missingRequiredFallback) {
+    return missingRequiredFallback;
   }
 
   const details = failures.length > 0 ? ` (${failures.join("; ")})` : "";
@@ -224,11 +312,15 @@ export function loadBundledCodexCatalogFromCommands(
 }
 
 /** Load the official catalog bundled with the installed Codex CLI. */
-export function loadBundledCodexCatalog(requiredModel?: string): CodexModelCatalog {
+export function loadBundledCodexCatalog(
+  requiredModel?: string,
+  allowMissingRequiredModel = false,
+): CodexModelCatalog {
   return loadBundledCodexCatalogFromCommands(
     codexCatalogCommands(),
     runCatalogCommand,
     requiredModel,
+    allowMissingRequiredModel,
   );
 }
 
@@ -237,7 +329,8 @@ export function buildCodexCatalogForCopilot(
   requiredModel?: string,
 ): PatchedCodexCatalog {
   return patchCodexCatalogForCopilot(
-    loadBundledCodexCatalog(requiredModel),
+    loadBundledCodexCatalog(requiredModel, true),
     copilotModels,
+    requiredModel,
   );
 }

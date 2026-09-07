@@ -148,13 +148,17 @@ function compareVersions(a: string, b: string): number {
  * Client Setup can default to the strongest option instead of the alphabetical
  * first. Rules (highest version wins within each):
  *   - claude : the newest Opus (e.g. claude-opus-4.8)
- *   - gpt    : the newest full GPT-5 line, excluding mini / codex / dated /
- *              preview variants (e.g. gpt-5.5)
+ *   - gpt    : the newest flagship GPT line, excluding lightweight / codex /
+ *              dated / preview variants (e.g. gpt-6-astra)
  *   - gemini : the newest Pro (e.g. gemini-3.1-pro-preview)
  * Returns null when nothing in `ids` matches the family's preference, so callers
  * can fall back to their existing first-entry default.
  */
-export function pickBestModel(family: "claude" | "gpt" | "gemini", ids: string[]): string | null {
+export function pickBestModel(
+  family: "claude" | "gpt" | "gemini",
+  ids: string[],
+  catalog?: Array<{ id: string; model_picker_category?: string }>,
+): string | null {
   const verOf = (id: string, re: RegExp): string | null => {
     const m = id.match(re);
     return m ? m[1]! : null;
@@ -170,10 +174,34 @@ export function pickBestModel(family: "claude" | "gpt" | "gemini", ids: string[]
   }
 
   if (family === "gpt") {
-    // Full GPT-5 line only: exclude mini / codex / turbo and dated/preview ids.
+    // Prefer the catalog's "powerful" tier when available. The suffix fallback
+    // keeps this pure helper useful to callers that only have ids, while still
+    // distinguishing flagship named releases (Astra/Sol) from Luna/Terra.
+    const fallbackTier: Record<string, number> = {
+      "": 3,
+      astra: 3,
+      sol: 3,
+      terra: 2,
+      luna: 1,
+    };
     const gpt = ids
-      .filter((id) => /^gpt-5(\.\d+)?$/.test(id))
-      .map((id) => ({ id, v: verOf(id, /^gpt-(\d+(?:\.\d+)?)$/)! }));
+      .map((id) => {
+        const match = id.match(/^gpt-(\d+(?:\.\d+)?)(?:-([a-z][a-z0-9-]*))?$/);
+        if (!match || /(?:^|-)(?:mini|nano|codex|turbo|preview|picker|fast)(?:-|$)/.test(id)) {
+          return null;
+        }
+        const category = catalog?.find((model) => model.id === id)?.model_picker_category;
+        const tier = category === "powerful"
+          ? 3
+          : category === "versatile"
+            ? 2
+            : category === "lightweight"
+              ? 1
+              : (fallbackTier[match[2] ?? ""] ?? 0);
+        return { id, v: match[1]!, tier };
+      })
+      .filter((item): item is { id: string; v: string; tier: number } => item !== null)
+      .filter((item) => item.tier === 3);
     if (gpt.length === 0) return null;
     return gpt.sort((a, b) => compareVersions(b.v, a.v))[0]!.id;
   }
@@ -223,8 +251,8 @@ export function claudeDisplayName(
 }
 
 // Endpoints that let Claude Code drive a model through this proxy. Claude
-// models expose `/v1/messages` (+ `/chat/completions`); the live GPT-5 line
-// exposes `/responses` and/or `/chat/completions`.
+// models expose `/v1/messages` (+ `/chat/completions`); current GPT models
+// expose `/responses` and/or `/chat/completions`.
 //
 // Requiring one of these is a positive-capability filter, NOT a liveness test.
 // The gpt-4 era ids (gpt-4o, gpt-4.1, gpt-3.5-turbo, ...) advertise an EMPTY
@@ -720,7 +748,7 @@ async function configCodex(baseUrl: string, outputPath?: string) {
     }
 
     // Surface the strongest GPT model first so the default selection [1] is best.
-    const bestGpt = pickBestModel("gpt", modelNames);
+    const bestGpt = pickBestModel("gpt", modelNames, modelList);
     if (bestGpt) modelNames = [bestGpt, ...modelNames.filter((id) => id !== bestGpt)];
 
     console.log("\nAvailable models:\n");

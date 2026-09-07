@@ -3,7 +3,7 @@ import { startTestServer, stopTestServer, getBaseUrl, parseSSEEvents } from "./s
 
 /**
  * Covers the Anthropic -> Responses path: Claude Code driving a Copilot model
- * that is served on `/responses` only (the GPT-5.5 / 5.6 line), plus the
+ * that is served on `/responses` only (including GPT-6 Astra), plus the
  * `/chat/completions` sibling path so a regression in one is not masked by the
  * other.
  */
@@ -56,6 +56,21 @@ describe("E2E: Anthropic over the Responses API", () => {
     expect(resp.status).toBe(200);
     const body = await resp.json() as any;
     expect(body.model).toBe("gpt-5.6-sol");
+  }, 60000);
+
+  test("GPT-6 Astra answers through the Anthropic translation path", async () => {
+    const resp = await post({
+      model: "gpt-6-astra[1m]",
+      max_tokens: 128,
+      messages: [{ role: "user", content: "Reply with just: OK" }],
+    });
+
+    expect(resp.status).toBe(200);
+    const body = await resp.json() as any;
+    expect(body.model).toBe("gpt-6-astra");
+    expect(body.type).toBe("message");
+    expect(body.stop_reason).toBe("end_turn");
+    expect(body.usage.output_tokens).toBeGreaterThan(0);
   }, 60000);
 
   test("streaming opens and closes the message exactly once", async () => {

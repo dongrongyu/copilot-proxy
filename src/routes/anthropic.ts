@@ -47,6 +47,7 @@ import {
   translateChunkToAnthropicEvents,
 } from "../translator/streaming";
 import { logRequest, type RequestLogEntry } from "../usage/logger";
+import { extractOpenAIUsage } from "../usage/openai-usage";
 
 const anthropicRouter = new Hono();
 
@@ -397,8 +398,9 @@ function buildTranslatedRequest(
   headers["X-Initiator"] = isAgent ? "agent" : "user";
 
   // Unlike the direct path this does not gate on `thinking` being present:
-  // GPT-5.x reasons unconditionally, so gating there would mean the configured
-  // effort never applied whenever the client had thinking switched off.
+  // Current GPT reasoning models reason unconditionally, so gating there would
+  // mean the configured effort never applied whenever the client had thinking
+  // switched off.
   // configuredEffortForModel already returns "" for models with no such
   // capability, which is the real gate.
   const effort = configuredEffortForModel(model);
@@ -463,14 +465,9 @@ async function handleTranslatedAnthropic(
           anthropicResp.content = [...searchBlocks, ...(anthropicResp.content ?? [])];
         }
         const usage = chatShaped.usage ?? {};
-        const cachedTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
-        const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
         logRequest({
           ...makeLogEntry(requestId, originalModel, translatedModel, "/v1/messages", startTime, effort),
-          input_tokens: Math.max(0, (usage.prompt_tokens ?? 0) - cachedTokens),
-          output_tokens: Math.max(0, (usage.completion_tokens ?? 0) - reasoningTokens),
-          cache_read_input_tokens: cachedTokens,
-          reasoning_tokens: reasoningTokens,
+          ...extractOpenAIUsage(usage),
           duration_ms: Date.now() - startTime,
         } as RequestLogEntry);
         return c.json(anthropicResp);
