@@ -333,13 +333,56 @@ describe("Codex model catalog overrides", () => {
     expect(catalog.models[0]?.slug).toBe("gpt-5.6-sol");
   });
 
-  test("uses cmd.exe directly on native Windows", () => {
+  test("supports native, PowerShell, and npm installations on Windows", () => {
     const commands = codexCatalogCommands("win32");
-    expect(commands).toHaveLength(1);
+    expect(commands).toHaveLength(3);
     expect(commands[0]?.label).toBe("Windows Codex");
     expect(commands[0]?.args).toEqual([
+      "/d", "/c", "codex.exe", "debug", "models", "--bundled",
+    ]);
+    expect(commands[1]?.label).toBe("Windows Codex (PowerShell)");
+    expect(commands[1]?.args.slice(0, 3)).toEqual([
+      "-NoProfile", "-NonInteractive", "-EncodedCommand",
+    ]);
+    expect(commands[2]?.args).toEqual([
       "/d", "/c", "codex.cmd", "debug", "models", "--bundled",
     ]);
+  });
+
+  test("finds a PowerShell install when WSL Codex and Windows npm shims are absent", () => {
+    const calls: string[] = [];
+    const catalog = loadBundledCodexCatalogFromCommands(
+      codexCatalogCommands("linux"),
+      (spec) => {
+        calls.push(spec.label);
+        if (spec.label === "Windows Codex (PowerShell)") {
+          return JSON.stringify({ models: [{ slug: "gpt-6.1-sol" }] });
+        }
+        throw new Error("Codex executable not found in PATH");
+      },
+      "gpt-6.1-sol",
+    );
+
+    expect(calls).toEqual(["Codex", "Windows Codex", "Windows Codex (PowerShell)"]);
+    expect(catalog.models[0]?.slug).toBe("gpt-6.1-sol");
+  });
+
+  test("retains the npm fallback when no native Windows install is available", () => {
+    const calls: string[] = [];
+    const catalog = loadBundledCodexCatalogFromCommands(
+      codexCatalogCommands("win32"),
+      (spec) => {
+        calls.push(spec.label);
+        if (spec.label === "Windows Codex (npm)") {
+          return JSON.stringify({ models: [{ slug: "gpt-5.6-sol" }] });
+        }
+        throw new Error("Native Windows Codex not found");
+      },
+      "gpt-5.6-sol",
+    );
+
+    expect(calls).toEqual(["Windows Codex", "Windows Codex (PowerShell)", "Windows Codex (npm)"]);
+    expect(catalog.models[0]?.slug).toBe("gpt-5.6-sol");
   });
 
   test("keeps Windows metadata when a newer WSL Codex already bundles the model", () => {
@@ -348,7 +391,7 @@ describe("Codex model catalog overrides", () => {
       codexCatalogCommands("linux", "/mnt/c/Users/test/.codex/config.toml"),
       (spec) => {
         calls.push(spec.label);
-        return JSON.stringify(spec.label === "Windows Codex"
+        return JSON.stringify(spec.label.startsWith("Windows Codex")
           ? { models: [{ slug: "gpt-5.6-sol", supports_parallel_tool_calls: true }] }
           : { models: [{ slug: "gpt-6.1-sol", supports_reasoning_effort_updates: true }] });
       },
@@ -361,7 +404,7 @@ describe("Codex model catalog overrides", () => {
     }], "gpt-6.1-sol");
     const model = result.catalog.models.find((entry) => entry.slug === "gpt-6.1-sol")!;
 
-    expect(calls).toEqual(["Windows Codex"]);
+    expect(calls).toEqual(["Windows Codex", "Windows Codex (PowerShell)", "Windows Codex (npm)"]);
     expect(model.supports_parallel_tool_calls).toBe(true);
     expect(model).not.toHaveProperty("supports_reasoning_effort_updates");
     expect(model.context_window).toBe(1_050_000);
@@ -378,7 +421,7 @@ describe("Codex model catalog overrides", () => {
       "gpt-6.1-sol",
       true,
     )).toThrow("Windows Codex unavailable");
-    expect(calls).toEqual(["Windows Codex"]);
+    expect(calls).toEqual(["Windows Codex", "Windows Codex (PowerShell)", "Windows Codex (npm)"]);
   });
 
   test("skips an older catalog that lacks the selected model", () => {

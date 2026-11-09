@@ -1,6 +1,6 @@
 import { execFileSync } from "child_process";
 import { existsSync } from "fs";
-import { resolve } from "path";
+import { join, resolve } from "path";
 import type { CopilotModel } from "../auth/state";
 
 export const CODEX_CATALOG_FILENAME = "copilot-proxy-models.json";
@@ -35,6 +35,49 @@ export interface CodexCatalogCommand {
 type CodexCatalogCommandRunner = (spec: CodexCatalogCommand) => string;
 
 const BUNDLED_CATALOG_ARGS = ["debug", "models", "--bundled"];
+
+// WSL can inherit a PATH from before the Windows installer ran. Read the
+// registered Windows paths and standalone package locations without loading
+// shell profiles, which can add non-JSON output or require interactive input.
+const WINDOWS_CODEX_DISCOVERY_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+try {
+  $candidates = @()
+  $nativeCommand = Get-Command codex.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($nativeCommand) { $candidates += $nativeCommand.Source }
+  foreach ($scope in @('User', 'Machine')) {
+    $registeredPath = [Environment]::GetEnvironmentVariable('Path', $scope)
+    foreach ($entry in ($registeredPath -split ';')) {
+      if ([String]::IsNullOrWhiteSpace($entry)) { continue }
+      $directory = [Environment]::ExpandEnvironmentVariables($entry.Trim().Trim('"'))
+      $candidates += [IO.Path]::Combine($directory, 'codex.exe')
+    }
+  }
+  $codexRoots = @(
+    $env:CODEX_HOME,
+    [Environment]::GetEnvironmentVariable('CODEX_HOME', 'User'),
+    [Environment]::GetEnvironmentVariable('CODEX_HOME', 'Machine'),
+    [IO.Path]::Combine($env:USERPROFILE, '.codex')
+  )
+  foreach ($codexRoot in $codexRoots) {
+    if ([String]::IsNullOrWhiteSpace($codexRoot)) { continue }
+    $candidates += [IO.Path]::Combine($codexRoot, 'packages\standalone\current\bin\codex.exe')
+    $candidates += [IO.Path]::Combine($codexRoot, 'packages\standalone\current\codex.exe')
+  }
+  foreach ($candidate in ($candidates | Select-Object -Unique)) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf -ErrorAction SilentlyContinue) {
+      & $candidate ${BUNDLED_CATALOG_ARGS.join(" ")}
+      exit $LASTEXITCODE
+    }
+  }
+  [Console]::Error.WriteLine('Windows Codex executable was not found. Check the Windows Codex installation and PATH.')
+  exit 1
+} catch {
+  [Console]::Error.WriteLine($_.Exception.Message)
+  exit 1
+}
+`;
 
 function positiveInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value > 0
@@ -226,8 +269,9 @@ function runCatalogCommand(spec: CodexCatalogCommand): string {
 /**
  * Candidate commands for reading Codex's bundled catalog. WSL inherits Windows
  * PATH entries, where the extensionless npm shim runs Linux Node against a
- * Windows-only install. If the normal command fails, invoke codex.cmd through
- * Windows cmd.exe so Windows Node selects the win32 optional dependency.
+ * Windows-only install. Native Windows installations are found through PATH,
+ * the registered Windows paths, or their standalone package directory. The
+ * npm shim remains a fallback so Windows Node selects its win32 dependency.
  */
 export function codexCatalogCommands(
   platform = process.platform,
@@ -241,25 +285,43 @@ export function codexCatalogCommands(
     : (existsSync("/mnt/c/Windows/System32/cmd.exe")
       ? "/mnt/c/Windows/System32/cmd.exe"
       : "cmd.exe");
-  const windowsSpec: CodexCatalogCommand = {
+  const windowsNativeSpec: CodexCatalogCommand = {
     label: "Windows Codex",
+    command: windowsCmd,
+    args: ["/d", "/c", "codex.exe", ...BUNDLED_CATALOG_ARGS],
+    cwd: windowsRoot,
+  };
+  const windowsPowerShellSpec: CodexCatalogCommand = {
+    label: "Windows Codex (PowerShell)",
+    command: windowsRoot
+      ? join(windowsRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+      : "powershell.exe",
+    args: [
+      "-NoProfile", "-NonInteractive", "-EncodedCommand",
+      Buffer.from(WINDOWS_CODEX_DISCOVERY_SCRIPT, "utf16le").toString("base64"),
+    ],
+    cwd: windowsRoot,
+  };
+  const windowsNpmSpec: CodexCatalogCommand = {
+    label: "Windows Codex (npm)",
     command: windowsCmd,
     args: ["/d", "/c", "codex.cmd", ...BUNDLED_CATALOG_ARGS],
     cwd: windowsRoot,
   };
+  const windowsSpecs = [windowsNativeSpec, windowsPowerShellSpec, windowsNpmSpec];
 
   // A Windows client must retain its own version's metadata schema, even when
   // a newer WSL Codex already bundles the selected model.
   const windowsTarget = targetConfigPath
     && /^\/mnt\/[a-z](?:\/|$)/i.test(resolve(targetConfigPath));
-  if (platform === "win32" || windowsTarget) return [windowsSpec];
+  if (platform === "win32" || windowsTarget) return windowsSpecs;
   return [
     {
       label: "Codex",
       command: "codex",
       args: [...BUNDLED_CATALOG_ARGS],
     },
-    windowsSpec,
+    ...windowsSpecs,
   ];
 }
 
