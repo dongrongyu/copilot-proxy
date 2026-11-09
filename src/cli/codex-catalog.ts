@@ -1,5 +1,6 @@
 import { execFileSync } from "child_process";
 import { existsSync } from "fs";
+import { resolve } from "path";
 import type { CopilotModel } from "../auth/state";
 
 export const CODEX_CATALOG_FILENAME = "copilot-proxy-models.json";
@@ -127,10 +128,9 @@ export function codexAutoCompactLimit(maxPromptTokens: unknown): number | undefi
 }
 
 /**
- * Patch a complete Codex catalog with the context and prompt limits advertised
- * by the live Copilot catalog. Existing GPT entries are updated in place. If a
- * selected GPT has reached Copilot before Codex's bundled catalog, a compatible
- * entry is synthesized for it; all other metadata remains unchanged.
+ * Patch a complete Codex catalog with every GPT model's full context and prompt
+ * limits advertised by the live Copilot catalog. Missing GPT entries receive
+ * compatible metadata; all other model metadata remains unchanged.
  */
 export function patchCodexCatalogForCopilot(
   source: unknown,
@@ -155,6 +155,18 @@ export function patchCodexCatalogForCopilot(
       throw new Error(`Codex model catalog does not include ${requiredModel}`);
     }
     catalog.models.push(synthesizeCodexModel(catalog, copilot));
+  }
+
+  const knownModels = new Set(catalog.models.map((model) => model.slug));
+  for (const copilot of copilotModels) {
+    if (
+      !copilot.id.startsWith("gpt-")
+      || knownModels.has(copilot.id)
+      || !positiveInteger(copilot.capabilities?.limits?.max_context_window_tokens)
+      || copilot.supported_endpoints?.length === 0
+    ) continue;
+    catalog.models.push(synthesizeCodexModel(catalog, copilot));
+    knownModels.add(copilot.id);
   }
 
   for (const model of catalog.models) {
@@ -219,6 +231,7 @@ function runCatalogCommand(spec: CodexCatalogCommand): string {
  */
 export function codexCatalogCommands(
   platform = process.platform,
+  targetConfigPath?: string,
 ): CodexCatalogCommand[] {
   const windowsRoot = platform === "win32"
     ? (process.env.SystemRoot || process.env.WINDIR)
@@ -235,7 +248,11 @@ export function codexCatalogCommands(
     cwd: windowsRoot,
   };
 
-  if (platform === "win32") return [windowsSpec];
+  // A Windows client must retain its own version's metadata schema, even when
+  // a newer WSL Codex already bundles the selected model.
+  const windowsTarget = targetConfigPath
+    && /^\/mnt\/[a-z](?:\/|$)/i.test(resolve(targetConfigPath));
+  if (platform === "win32" || windowsTarget) return [windowsSpec];
   return [
     {
       label: "Codex",
@@ -315,9 +332,10 @@ export function loadBundledCodexCatalogFromCommands(
 export function loadBundledCodexCatalog(
   requiredModel?: string,
   allowMissingRequiredModel = false,
+  targetConfigPath?: string,
 ): CodexModelCatalog {
   return loadBundledCodexCatalogFromCommands(
-    codexCatalogCommands(),
+    codexCatalogCommands(process.platform, targetConfigPath),
     runCatalogCommand,
     requiredModel,
     allowMissingRequiredModel,
@@ -327,9 +345,10 @@ export function loadBundledCodexCatalog(
 export function buildCodexCatalogForCopilot(
   copilotModels: CopilotModel[],
   requiredModel?: string,
+  targetConfigPath?: string,
 ): PatchedCodexCatalog {
   return patchCodexCatalogForCopilot(
-    loadBundledCodexCatalog(requiredModel, true),
+    loadBundledCodexCatalog(requiredModel, true, targetConfigPath),
     copilotModels,
     requiredModel,
   );

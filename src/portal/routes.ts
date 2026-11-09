@@ -84,6 +84,7 @@ portalRouter.get("/api/portal/setup", (c) => {
   const target = (c.req.query("target") || "claude") as SetupTarget;
   const opts = {
     model: c.req.query("model") || undefined,
+    where: c.req.query("where") || undefined,
     codexMode: c.req.query("codexMode") || undefined,
     aoaiBaseUrl: c.req.query("aoaiBaseUrl") || undefined,
     aoaiModel: c.req.query("aoaiModel") || undefined,

@@ -79,6 +79,8 @@ copilot-proxy config gemini    # writes ~/.gemini/.env + ~/.gemini/settings.json
 
 Each picks that client's strongest model by default (Claude → Opus 5, Codex → GPT-6 Astra, Gemini → Gemini 3.1 Pro); you can choose another interactively or on the portal's **Client Setup** page. Existing settings are **merged**, not overwritten.
 
+`config codex` configures all available GPT models with their full context windows advertised by Copilot and model-specific, prompt-safe auto-compaction limits, including GPT models not yet bundled with Codex. Models supporting 1M or 1.05M tokens use that full window; models with smaller limits keep their actual maximum rather than being forced to 1M. Each target uses its own Codex installation's bundled metadata so WSL and Windows clients can run different versions. The generated `copilot-proxy-models.json` is referenced through `model_catalog_json`, so switching models uses each model's own limits. If a target's catalog cannot be generated, the existing configuration is preserved. Restart Codex after saving active tasks to load the updated catalog; clients using a shared daemon may also need that daemon restarted. The configuration command does not restart Codex automatically.
+
 `config claude` offers **GPT models alongside Claude ones** — select e.g. `gpt-6-astra[1m]` and Claude Code runs on it, with tool calls, multi-turn sessions, and web search all working. The one thing you lose is the thinking display: Copilot does not emit reasoning content for GPT models, so the model still reasons (and reasoning tokens are still billed and logged) but Claude Code has nothing to render.
 
 ### Service management

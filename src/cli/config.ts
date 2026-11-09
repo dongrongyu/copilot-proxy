@@ -730,6 +730,7 @@ async function configCodex(baseUrl: string, outputPath?: string) {
   let tomlContent: string;
   let envHint: { name: string; value?: string } | null = null;
   let patchedCatalog: PatchedCodexCatalog | null = null;
+  const patchedCatalogs = new Map<string, PatchedCodexCatalog>();
 
   if (mode === "proxy") {
     // Fetch models from Copilot API
@@ -773,16 +774,31 @@ async function configCodex(baseUrl: string, outputPath?: string) {
     const supportedEfforts: string[] | undefined = (modelObj as any)
       ?.capabilities?.supports?.reasoning_effort;
     try {
-      patchedCatalog = buildCodexCatalogForCopilot(modelList, selectedModel);
-      if (patchedCatalog.overrides.length > 0) {
+      // Prepare every target before writing either config. WSL and Windows
+      // Codex installations can require different model metadata schemas.
+      for (const configPath of pathsToWrite) {
+        const patched = buildCodexCatalogForCopilot(modelList, selectedModel, configPath);
+        patchedCatalogs.set(configPath, patched);
+        patchedCatalog ??= patched;
+      }
+      const selectedEntry = patchedCatalog?.catalog.models.find((entry) => entry.slug === selectedModel);
+      if (typeof selectedEntry?.context_window === "number") {
+        console.log(`\n[Config] Context window: ${selectedEntry.context_window.toLocaleString()} tokens`);
+      }
+      if (typeof selectedEntry?.auto_compact_token_limit === "number") {
+        console.log(`[Config] Auto-compaction: ${selectedEntry.auto_compact_token_limit.toLocaleString()} tokens`);
+      }
+      if (patchedCatalog && patchedCatalog.overrides.length > 0) {
         console.log("\nCodex model limits from the Copilot catalog:");
         for (const item of patchedCatalog.overrides) {
           console.log(`  ${item.id}: ${item.contextWindow.toLocaleString()} tokens`);
         }
       }
     } catch (error) {
-      console.warn(`\n[Config] ${String(error)}`);
-      console.warn("[Config] Continuing without a Codex model-catalog override.");
+      console.error(`\n[Config] ${String(error)}`);
+      console.error("[Config] Codex configuration was not updated because its model catalog could not be generated.");
+      process.exitCode = 1;
+      return;
     }
     tomlContent = buildCodexProxyToml(
       baseUrl,
@@ -808,17 +824,21 @@ async function configCodex(baseUrl: string, outputPath?: string) {
     envHint = { name: aoaiOpts.envKey };
   }
 
-  const written = writeCodexConfig(
+  const written = pathsToWrite.flatMap((configPath) => writeCodexConfig(
     tomlContent,
-    pathsToWrite,
-    patchedCatalog?.catalog,
+    [configPath],
+    patchedCatalogs.get(configPath)?.catalog,
     mode === "aoai",
-  );
+  ));
   for (const p of written) {
     console.log(`\n[Config] Written: ${p}`);
   }
 
   if (mode === "proxy") {
+    if (patchedCatalog) {
+      console.log("\n[Config] Existing Codex clients or daemons may keep cached model limits.");
+      console.log("[Config] Restart Codex after saving active tasks to load the updated catalog.");
+    }
     console.log("\nNext steps:");
     console.log("  codex");
   } else if (envHint) {

@@ -14,7 +14,7 @@ describe("Codex model catalog overrides", () => {
     expect(codexAutoCompactLimit(0)).toBeUndefined();
   });
 
-  test("patches only GPT models present in both catalogs", () => {
+  test("patches existing GPT entries and adds GPT models from the Copilot catalog", () => {
     const source = {
       models: [
         {
@@ -86,6 +86,7 @@ describe("Codex model catalog overrides", () => {
     expect(result.overrides.map((item) => item.id)).toEqual([
       "gpt-5.6-sol",
       "gpt-5.4-mini",
+      "gpt-5.3-codex",
     ]);
     const sol = result.catalog.models.find((model) => model.slug === "gpt-5.6-sol")!;
     expect(sol.context_window).toBe(1_050_000);
@@ -98,7 +99,10 @@ describe("Codex model catalog overrides", () => {
     expect(mini.max_context_window).toBe(400_000);
     expect(mini.auto_compact_token_limit).toBe(260_000);
 
-    expect(result.catalog.models.some((model) => model.slug === "gpt-5.3-codex")).toBe(false);
+    const codex = result.catalog.models.find((model) => model.slug === "gpt-5.3-codex")!;
+    expect(codex.context_window).toBe(400_000);
+    expect(codex.max_context_window).toBe(400_000);
+    expect(codex.auto_compact_token_limit).toBe(260_000);
     expect(result.catalog.models.find((model) => model.slug === "gpt-5.2")?.context_window)
       .toBe(272_000);
     expect(result.catalog.models.find((model) => model.slug === "codex-auto-review")?.max_context_window)
@@ -170,6 +174,87 @@ describe("Codex model catalog overrides", () => {
 
     expect(source.models).toHaveLength(1);
     expect(source.models[0]?.slug).toBe("gpt-5.6-sol");
+  });
+
+  test("configures GPT-6.1 Sol with its full Copilot context window", () => {
+    const source = {
+      models: [{
+        slug: "gpt-6.1-sol",
+        context_window: 272_000,
+        max_context_window: 872_000,
+        effective_context_window_percent: 95,
+      }],
+    };
+    const copilot = [{
+      id: "gpt-6.1-sol",
+      capabilities: {
+        limits: {
+          max_context_window_tokens: 1_050_000,
+          max_prompt_tokens: 922_000,
+        },
+      },
+    }];
+
+    const result = patchCodexCatalogForCopilot(source, copilot, "gpt-6.1-sol");
+    const sol = result.catalog.models[0]!;
+    expect(sol.context_window).toBe(1_050_000);
+    expect(sol.max_context_window).toBe(1_050_000);
+    expect(sol.auto_compact_token_limit).toBe(900_000);
+    expect(sol.effective_context_window_percent).toBe(95);
+  });
+
+  test("configures every live GPT model to its own maximum without selecting each model", () => {
+    const source = {
+      models: [{
+        slug: "gpt-5.6-sol",
+        context_window: 272_000,
+        max_context_window: 872_000,
+        auto_compact_token_limit: null,
+      }],
+    };
+    const limits = [
+      { id: "gpt-5.6-sol", context: 1_050_000, prompt: 922_000, compact: 900_000 },
+      { id: "gpt-6.1-sol", context: 1_050_000, prompt: 922_000, compact: 900_000 },
+      { id: "gpt-6-astra", context: 1_000_000, prompt: 872_000, compact: 850_000 },
+      { id: "gpt-future", context: 2_000_000, prompt: 1_800_000, compact: 1_760_000 },
+      { id: "gpt-5.4-mini", context: 400_000, prompt: 272_000, compact: 260_000 },
+    ];
+    const copilot = limits.map((model) => ({
+      id: model.id,
+      capabilities: {
+        limits: {
+          max_context_window_tokens: model.context,
+          max_prompt_tokens: model.prompt,
+        },
+      },
+    }));
+
+    const result = patchCodexCatalogForCopilot(source, copilot, "gpt-6.1-sol");
+
+    for (const limitsEntry of limits) {
+      const entry = result.catalog.models.find((model) => model.slug === limitsEntry.id)!;
+      expect(entry.context_window).toBe(limitsEntry.context);
+      expect(entry.max_context_window).toBe(limitsEntry.context);
+      expect(entry.auto_compact_token_limit).toBe(limitsEntry.compact);
+    }
+    expect(result.catalog.models).toHaveLength(limits.length);
+    expect(source.models).toHaveLength(1);
+    expect(source.models[0]?.context_window).toBe(272_000);
+  });
+
+  test("does not add non-GPT, unavailable, or unknown-limit models to the picker", () => {
+    const source = { models: [{ slug: "gpt-5.6-sol", context_window: 272_000 }] };
+    const copilot = [
+      { id: "claude-opus-4.8", capabilities: { limits: { max_context_window_tokens: 1_000_000 } } },
+      { id: "gpt-unknown" },
+      { id: "gpt-invalid", capabilities: { limits: { max_context_window_tokens: 0 } } },
+      { id: "gpt-unavailable", supported_endpoints: [], capabilities: { limits: { max_context_window_tokens: 1_000_000 } } },
+    ];
+
+    const result = patchCodexCatalogForCopilot(source, copilot);
+
+    expect(result.catalog).toEqual(source);
+    expect(result.overrides).toEqual([]);
   });
 
   test("fills a missing compact limit even when context already matches", () => {
@@ -255,6 +340,45 @@ describe("Codex model catalog overrides", () => {
     expect(commands[0]?.args).toEqual([
       "/d", "/c", "codex.cmd", "debug", "models", "--bundled",
     ]);
+  });
+
+  test("keeps Windows metadata when a newer WSL Codex already bundles the model", () => {
+    const calls: string[] = [];
+    const source = loadBundledCodexCatalogFromCommands(
+      codexCatalogCommands("linux", "/mnt/c/Users/test/.codex/config.toml"),
+      (spec) => {
+        calls.push(spec.label);
+        return JSON.stringify(spec.label === "Windows Codex"
+          ? { models: [{ slug: "gpt-5.6-sol", supports_parallel_tool_calls: true }] }
+          : { models: [{ slug: "gpt-6.1-sol", supports_reasoning_effort_updates: true }] });
+      },
+      "gpt-6.1-sol",
+      true,
+    );
+    const result = patchCodexCatalogForCopilot(source, [{
+      id: "gpt-6.1-sol",
+      capabilities: { limits: { max_context_window_tokens: 1_050_000 } },
+    }], "gpt-6.1-sol");
+    const model = result.catalog.models.find((entry) => entry.slug === "gpt-6.1-sol")!;
+
+    expect(calls).toEqual(["Windows Codex"]);
+    expect(model.supports_parallel_tool_calls).toBe(true);
+    expect(model).not.toHaveProperty("supports_reasoning_effort_updates");
+    expect(model.context_window).toBe(1_050_000);
+  });
+
+  test("does not substitute WSL metadata when the Windows catalog is unavailable", () => {
+    const calls: string[] = [];
+    expect(() => loadBundledCodexCatalogFromCommands(
+      codexCatalogCommands("linux", "/mnt/d/Users/test/.codex/config.toml"),
+      (spec) => {
+        calls.push(spec.label);
+        throw new Error("Windows Codex unavailable");
+      },
+      "gpt-6.1-sol",
+      true,
+    )).toThrow("Windows Codex unavailable");
+    expect(calls).toEqual(["Windows Codex"]);
   });
 
   test("skips an older catalog that lacks the selected model", () => {
