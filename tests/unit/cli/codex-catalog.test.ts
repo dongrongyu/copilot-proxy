@@ -215,8 +215,9 @@ describe("Codex model catalog overrides", () => {
     const limits = [
       { id: "gpt-5.6-sol", context: 1_050_000, prompt: 922_000, compact: 900_000 },
       { id: "gpt-6.1-sol", context: 1_050_000, prompt: 922_000, compact: 900_000 },
+      { id: "gpt-6.2-sol", context: 1_050_000, prompt: 1_050_000, output: 128_000, compact: 900_000 },
       { id: "gpt-6-astra", context: 1_000_000, prompt: 872_000, compact: 850_000 },
-      { id: "gpt-future", context: 2_000_000, prompt: 1_800_000, compact: 1_760_000 },
+      { id: "gpt-future", context: 2_000_000, prompt: 1_800_000, output: 128_000, compact: 1_760_000 },
       { id: "gpt-5.4-mini", context: 400_000, prompt: 272_000, compact: 260_000 },
     ];
     const copilot = limits.map((model) => ({
@@ -225,6 +226,7 @@ describe("Codex model catalog overrides", () => {
         limits: {
           max_context_window_tokens: model.context,
           max_prompt_tokens: model.prompt,
+          max_output_tokens: model.output,
         },
       },
     }));

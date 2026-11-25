@@ -157,7 +157,7 @@ function synthesizeCodexModel(
 }
 
 /**
- * Keep compaction below Copilot's advertised prompt ceiling. Rounding down to
+ * Keep compaction below the available prompt budget. Rounding down to
  * 10K tokens provides a small buffer for tokenizer/accounting differences:
  * 922K -> 900K and 272K -> 260K.
  */
@@ -171,8 +171,8 @@ export function codexAutoCompactLimit(maxPromptTokens: unknown): number | undefi
 }
 
 /**
- * Patch a complete Codex catalog with every GPT model's full context and prompt
- * limits advertised by the live Copilot catalog. Missing GPT entries receive
+ * Patch a complete Codex catalog with each GPT model's advertised context window
+ * and a compaction limit based on its prompt budget. Missing GPT entries receive
  * compatible metadata; all other model metadata remains unchanged.
  */
 export function patchCodexCatalogForCopilot(
@@ -223,10 +223,17 @@ export function patchCodexCatalogForCopilot(
     const contextWindow = positiveInteger(limits?.max_context_window_tokens);
     if (!contextWindow) continue;
 
+    const promptLimit = positiveInteger(limits?.max_prompt_tokens);
+    const outputLimit = positiveInteger(limits?.max_output_tokens);
+    // Some models advertise the full context window as their prompt limit.
+    const promptBudget = promptLimit && outputLimit && outputLimit < contextWindow
+      ? Math.min(promptLimit, contextWindow - outputLimit)
+      : promptLimit;
+    const autoCompactTokenLimit = codexAutoCompactLimit(promptBudget);
+
     const previousContextWindow = positiveInteger(model.context_window);
     const previousMaxContextWindow = positiveInteger(model.max_context_window);
     const previousAutoCompactTokenLimit = positiveInteger(model.auto_compact_token_limit);
-    const autoCompactTokenLimit = codexAutoCompactLimit(limits?.max_prompt_tokens);
     const contextNeedsUpdate = previousContextWindow !== contextWindow
       || previousMaxContextWindow !== contextWindow;
     const compactNeedsUpdate = autoCompactTokenLimit !== undefined
